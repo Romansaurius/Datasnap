@@ -1,4 +1,4 @@
-from flask import Flask, request, send_file, render_template_string
+from flask import Flask, request, send_file, render_template, render_template_string
 import os
 from parsers.csv_parser import process_csv
 from parsers.txt_parser import process_txt
