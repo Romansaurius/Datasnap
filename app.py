@@ -44,6 +44,8 @@ def procesar():
             return "Formato no soportado", 400
     except Exception as e:
         return f"Error al procesar: {e}", 500
+
+    nombre_salida = "mejorado_" + os.path.splitext(archivo.filename)[0] + ".csv"
     salida = os.path.join(PROCESSED_FOLDER, "mejorado_" + archivo.filename + ".csv")
     df.to_csv(salida, index=False, na_rep="NaN")
     return send_file(salida, as_attachment=True)
