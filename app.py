@@ -20,6 +20,7 @@ HTML_FORM = '''
 <head>
     <meta charset="UTF-8">
     <title>DataSnap - Subir Archivo</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/panel.css') }}">
 </head>
 <body>
   <h2>Subí tu archivo</h2>
