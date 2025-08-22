@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>DataSnap - Subir Archivo</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/panel.css') }}">
+</head>
+<body>
+<div class="panel">
+  <h2>Subí tu archivo para procesarlo con DataSnap</h2>
+  <form action="/procesar" method="post" enctype="multipart/form-data">
+      <input type="file" name="archivo" accept=".csv,.txt,.json,.xlsx" required>
+      <button type="submit">Procesar</button>
+  </form>
+</div>
+</body>
+</html>
