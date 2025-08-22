@@ -14,27 +14,12 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(PROCESSED_FOLDER, exist_ok=True)
 os.makedirs(HISTORIAL_FOLDER, exist_ok=True)
 
-HTML_FORM = '''
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <title>DataSnap - Subir Archivo</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/panel.css') }}">
-</head>
-<body>
-  <h2>Subí tu archivo</h2>
-  <form action="/procesar" method="post" enctype="multipart/form-data">
-      <input type="file" name="archivo" accept=".csv,.txt,.xlsx,.json" required>
-      <button type="submit">Procesar</button>
-  </form>
-</body>
-</html>
-'''
+
 
 @app.route('/')
 def formulario():
-    return render_template_string(HTML_FORM)
+    return render_template("index.html")
+
 
 @app.route('/procesar', methods=['POST'])
 def procesar():
