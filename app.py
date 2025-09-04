@@ -15,8 +15,6 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(PROCESSED_FOLDER, exist_ok=True)
 os.makedirs(HISTORIAL_FOLDER, exist_ok=True)
 
-
-
 DB_CONFIG = {
     "host": "fedegoo.com.ar", 
     "user": "9895",
@@ -26,57 +24,55 @@ DB_CONFIG = {
 
 @app.route('/procesar', methods=['POST'])
 def procesar():
-    # 1. Recibir ID o nombre de archivo desde la petición POST
+
     data = request.json
-    if not data or 'archivo' not in data:
-        return jsonify({"error": "No se envió el nombre o ID de archivo"}), 400
+    if not data or 'id' not in data:
+        return jsonify({"error": "No se envió el ID del archivo"}), 400
 
-    nombre_archivo = data['archivo']
+    id_archivo = data['id']
 
-    # 2. Buscar archivo en la base de datos y traer su contenido
     try:
-        conn = mysql.connector.connect(**db_config)
-        cursor = conn.cursor()
-        cursor.execute("SELECT contenido, extension FROM archivos WHERE nombre = %s", (nombre_archivo,))
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT ruta, nombre FROM archivos WHERE id = %s", (id_archivo,))
         result = cursor.fetchone()
         conn.close()
 
         if not result:
             return jsonify({"error": "Archivo no encontrado en la base de datos"}), 404
 
-        contenido, extension = result
-        ruta_entrada = os.path.join(UPLOAD_FOLDER, nombre_archivo)
-        with open(ruta_entrada, 'wb') as f:
-            f.write(contenido)
+        ruta = result['ruta']
+        nombre = result['nombre']
+
+        if not os.path.exists(ruta):
+            return jsonify({"error": f"No se encontró el archivo en el servidor: {ruta}"}), 404
 
     except Exception as e:
         return jsonify({"error": f"Error al conectar con la base de datos: {e}"}), 500
 
-    # 3. Procesar el archivo según extensión
+    extension = os.path.splitext(ruta)[1].lower()
     try:
         if extension == ".csv":
-            df = process_csv(ruta_entrada, HISTORIAL_FOLDER)
+            df = process_csv(ruta, HISTORIAL_FOLDER)
         elif extension == ".txt":
-            df = process_txt(ruta_entrada, HISTORIAL_FOLDER)
+            df = process_txt(ruta, HISTORIAL_FOLDER)
         elif extension == ".xlsx":
-            df = process_xlsx(ruta_entrada, HISTORIAL_FOLDER)
+            df = process_xlsx(ruta, HISTORIAL_FOLDER)
         elif extension == ".json":
-            df = process_json(ruta_entrada, HISTORIAL_FOLDER)
+            df = process_json(ruta, HISTORIAL_FOLDER)
         else:
             return jsonify({"error": "Formato no soportado"}), 400
     except Exception as e:
         return jsonify({"error": f"Error al procesar: {e}"}), 500
 
-    # 4. Guardar archivo procesado en carpeta y actualizar estado en la BD
-    salida = os.path.join(PROCESSED_FOLDER, f"mejorado_{nombre_archivo}.csv")
+
+    salida = os.path.join(PROCESSED_FOLDER, f"mejorado_{os.path.basename(ruta)}.csv")
     df.to_csv(salida, index=False, na_rep="NaN")
 
     try:
-        conn = mysql.connector.connect(**db_config)
+        conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor()
-        with open(salida, 'rb') as f:
-            contenido_mejorado = f.read()
-        cursor.execute("UPDATE archivos SET contenido = %s, estado = 'optimizado' WHERE nombre = %s", (contenido_mejorado, nombre_archivo))
+        cursor.execute("UPDATE archivos SET estado = 'optimizado' WHERE id = %s", (id_archivo,))
         conn.commit()
         conn.close()
     except Exception as e:
