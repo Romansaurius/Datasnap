@@ -18,9 +18,9 @@ os.makedirs(HISTORIAL_FOLDER, exist_ok=True)
 
 # Configuración de conexión a la base de datos de Hostinger
 DB_CONFIG = {
-    "host": "TU_HOST_DE_HOSTINGER",  # ejemplo: "mysql.hostinger.com"
-    "user": "TU_USUARIO_DB",
-    "password": "TU_PASSWORD_DB",
+    "host": "fedegoo.com.ar",  # ejemplo: "mysql.hostinger.com"
+    "user": "9895",
+    "password": "TIGRE.BC.9895",
     "database": "datasnap"
 }
 
