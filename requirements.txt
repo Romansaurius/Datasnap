@@ -3,3 +3,4 @@ pandas
 gunicorn
 openpyxl
 number-parser
+mysql-connector-python
