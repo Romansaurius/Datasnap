@@ -35,6 +35,37 @@ creds = service_account.Credentials.from_service_account_info(
 drive_service = build("drive", "v3", credentials=creds)
 DRIVE_FOLDER_ID = os.environ["GDRIVE_FOLDER_ID"]
 
+@app.route('/upload_original', methods=['POST'])
+def upload_original():
+    if 'file' not in request.files:
+        return jsonify({"success": False, "error": "No se envió archivo"}), 400
+
+    file = request.files['file']
+    local_path = os.path.join(UPLOAD_FOLDER, file.filename)
+    file.save(local_path)
+
+    try:
+        file_metadata = {"name": file.filename, "parents": [DRIVE_FOLDER_ID]}
+        media = MediaFileUpload(local_path, mimetype="application/octet-stream")
+        uploaded = drive_service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields="id, webViewLink"
+        ).execute()
+
+        drive_id = uploaded["id"]
+        drive_link = uploaded["webViewLink"]
+
+        # Hacerlo accesible públicamente
+        drive_service.permissions().create(
+            fileId=drive_id,
+            body={"type": "anyone", "role": "reader"}
+        ).execute()
+
+        return jsonify({"success": True, "drive_id": drive_id, "drive_link": drive_link})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
 @app.route('/upload', methods=['POST'])
 def upload():
     if 'file' not in request.files:
