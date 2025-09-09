@@ -1,10 +1,12 @@
 from flask import Flask, request, jsonify, send_file
-import os
-import mysql.connector
+import os, json, mysql.connector
 from parsers.csv_parser import process_csv
 from parsers.txt_parser import process_txt
 from parsers.xlsx_parser import process_xlsx
 from parsers.json_parser import process_json
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
 
 app = Flask(__name__)
 
@@ -15,12 +17,23 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(PROCESSED_FOLDER, exist_ok=True)
 os.makedirs(HISTORIAL_FOLDER, exist_ok=True)
 
+# Config DB desde variables de entorno
 DB_CONFIG = {
-    "host": "fedegoo.com.ar",
-    "user": "9895",
-    "password": "TIGRE.BC.9895",
-    "database": "datasnap"
+    "host": os.environ.get("DB_HOST"),
+    "user": os.environ.get("DB_USER"),
+    "password": os.environ.get("DB_PASS"),
+    "database": os.environ.get("DB_NAME"),
+    "port": int(os.environ.get("DB_PORT", 3306))
 }
+
+# Config Google Drive
+creds_info = json.loads(os.environ["GCP_SERVICE_ACCOUNT_JSON"])
+creds = service_account.Credentials.from_service_account_info(
+    creds_info,
+    scopes=["https://www.googleapis.com/auth/drive"]
+)
+drive_service = build("drive", "v3", credentials=creds)
+DRIVE_FOLDER_ID = os.environ["GDRIVE_FOLDER_ID"]
 
 @app.route('/upload', methods=['POST'])
 def upload():
@@ -71,16 +84,54 @@ def procesar():
     salida = os.path.join(PROCESSED_FOLDER, f"mejorado_{os.path.basename(ruta)}.csv")
     df.to_csv(salida, index=False, na_rep="NaN")
 
+    # Subir a Google Drive
+    try:
+        file_metadata = {
+            "name": os.path.basename(salida),
+            "parents": [DRIVE_FOLDER_ID]
+        }
+        media = MediaFileUpload(salida, mimetype="text/csv")
+        uploaded = drive_service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields="id, webViewLink, webContentLink"
+        ).execute()
+
+        drive_id = uploaded.get("id")
+        drive_link = uploaded.get("webViewLink")
+
+        # Hacer accesible por link público (opcional, quita si no querés compartirlo abiertamente)
+        drive_service.permissions().create(
+            fileId=drive_id,
+            body={"type": "anyone", "role": "reader"},
+        ).execute()
+
+    except Exception as e:
+        return jsonify({"error": f"No se pudo subir a Google Drive: {e}"}), 500
+
+    # Actualizar base de datos
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor()
-        cursor.execute("UPDATE archivos SET estado = 'optimizado' WHERE id = %s", (id_archivo,))
+        cursor.execute("""
+            UPDATE archivos
+            SET estado = 'optimizado',
+                drive_id = %s,
+                drive_link = %s
+            WHERE id = %s
+        """, (drive_id, drive_link, id_archivo))
         conn.commit()
         conn.close()
     except Exception as e:
         return jsonify({"error": f"No se pudo actualizar la base de datos: {e}"}), 500
 
-    return send_file(salida, as_attachment=True)
+    return jsonify({
+        "success": True,
+        "archivo_id": id_archivo,
+        "ruta_local": salida,
+        "drive_id": drive_id,
+        "drive_link": drive_link
+    })
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=5000)
