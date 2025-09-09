@@ -4,3 +4,7 @@ gunicorn
 openpyxl
 number-parser
 mysql-connector-python
+google-api-python-client
+google-auth
+google-auth-httplib2
+google-auth-oauthlib
