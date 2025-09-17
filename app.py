@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify, send_file
-import os, json, mysql.connector
+import os, json, mysql.connector, requests
 from parsers.csv_parser import process_csv
 from parsers.txt_parser import process_txt
 from parsers.xlsx_parser import process_xlsx
@@ -86,14 +86,30 @@ def procesar():
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT ruta, nombre FROM archivos WHERE id = %s", (id_archivo,))
+        cursor.execute("SELECT ruta, nombre, drive_id_original FROM archivos WHERE id = %s", (id_archivo,))
         result = cursor.fetchone()
         conn.close()
         if not result:
             return jsonify({"error": "Archivo no encontrado en la base de datos"}), 404
+
         ruta = result['ruta']
-        if not os.path.exists(ruta):
-            return jsonify({"error": f"No se encontró el archivo en Render: {ruta}"}), 404
+        temp_file = False
+
+        if result.get('drive_id_original'):
+            # Descargar desde Google Drive
+            download_url = f"https://drive.google.com/uc?export=download&id={result['drive_id_original']}"
+            response = requests.get(download_url)
+            if response.status_code == 200:
+                temp_path = os.path.join(UPLOAD_FOLDER, f"temp_{id_archivo}_{result['nombre']}")
+                with open(temp_path, 'wb') as f:
+                    f.write(response.content)
+                ruta = temp_path
+                temp_file = True
+            else:
+                return jsonify({"error": "No se pudo descargar el archivo desde Google Drive"}), 500
+        else:
+            if not os.path.exists(ruta):
+                return jsonify({"error": f"No se encontró el archivo: {ruta}"}), 404
     except Exception as e:
         return jsonify({"error": f"Error al conectar con la base de datos: {e}"}), 500
 
@@ -114,6 +130,10 @@ def procesar():
 
     salida = os.path.join(PROCESSED_FOLDER, f"mejorado_{os.path.basename(ruta)}.csv")
     df.to_csv(salida, index=False, na_rep="NaN")
+
+    # Limpiar archivo temporal si se descargó
+    if temp_file:
+        os.remove(ruta)
 
     # Subir a Google Drive
     try:
