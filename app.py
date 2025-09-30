@@ -7,10 +7,8 @@ from parsers.json_parser import process_json
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
 
 UPLOAD_FOLDER = 'uploads'
 PROCESSED_FOLDER = 'processed'
@@ -185,7 +183,6 @@ def procesar():
         "drive_id": drive_id,
         "drive_link": drive_link
     })
-    
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=5000)
