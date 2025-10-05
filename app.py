@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify, send_file
-import os, json, mysql.connector, requests
+import os, json, mysql.connector, requests, time
 from parsers.csv_parser import process_csv
 from parsers.txt_parser import process_txt
 from parsers.xlsx_parser import process_xlsx
@@ -35,6 +35,20 @@ creds = service_account.Credentials.from_service_account_info(
 drive_service = build("drive", "v3", credentials=creds)
 DRIVE_FOLDER_ID = os.environ["GDRIVE_FOLDER_ID"]
 
+def execute_with_retry(request):
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            return request.execute()
+        except Exception as e:
+            if 'quotaExceeded' in str(e) or 'quota_exceeded' in str(e).lower():
+                wait_time = 2 ** attempt  # exponential backoff
+                time.sleep(wait_time)
+                continue
+            else:
+                raise
+    raise Exception("Max retries exceeded for Google Drive API quota")
+
 @app.route('/upload_original', methods=['POST'])
 def upload_original():
     if 'file' not in request.files:
@@ -47,20 +61,20 @@ def upload_original():
     try:
         file_metadata = {"name": file.filename, "parents": [DRIVE_FOLDER_ID]}
         media = MediaFileUpload(local_path, mimetype="application/octet-stream")
-        uploaded = drive_service.files().create(
+        uploaded = execute_with_retry(drive_service.files().create(
             body=file_metadata,
             media_body=media,
             fields="id, webViewLink"
-        ).execute()
+        ))
 
         drive_id = uploaded["id"]
         drive_link = uploaded["webViewLink"]
 
         # Hacerlo accesible públicamente
-        drive_service.permissions().create(
+        execute_with_retry(drive_service.permissions().create(
             fileId=drive_id,
             body={"type": "anyone", "role": "reader"}
-        ).execute()
+        ))
 
         return jsonify({"success": True, "drive_id": drive_id, "drive_link": drive_link})
     except Exception as e:
@@ -142,20 +156,20 @@ def procesar():
             "parents": [DRIVE_FOLDER_ID]
         }
         media = MediaFileUpload(salida, mimetype="text/csv")
-        uploaded = drive_service.files().create(
+        uploaded = execute_with_retry(drive_service.files().create(
             body=file_metadata,
             media_body=media,
             fields="id, webViewLink, webContentLink"
-        ).execute()
+        ))
 
         drive_id = uploaded.get("id")
         drive_link = uploaded.get("webViewLink")
 
         # Hacer accesible por link público (opcional, quita si no querés compartirlo abiertamente)
-        drive_service.permissions().create(
+        execute_with_retry(drive_service.permissions().create(
             fileId=drive_id,
             body={"type": "anyone", "role": "reader"},
-        ).execute()
+        ))
 
     except Exception as e:
         return jsonify({"error": f"No se pudo subir a Google Drive: {e}"}), 500
@@ -197,10 +211,10 @@ def procesar_drive():
         request = drive_service.files().get_media(fileId=drive_file_id)
         temp_path = os.path.join(UPLOAD_FOLDER, f"temp_drive_{drive_file_id}")
         with open(temp_path, 'wb') as f:
-            f.write(request.execute())
+            f.write(execute_with_retry(request))
 
         # Get file name
-        file_info = drive_service.files().get(fileId=drive_file_id, fields="name").execute()
+        file_info = execute_with_retry(drive_service.files().get(fileId=drive_file_id, fields="name"))
         nombre = file_info['name']
         ruta = temp_path
         temp_file = True
@@ -236,12 +250,12 @@ def procesar_drive():
     try:
         file_metadata = {"name": os.path.basename(salida), "parents": [DRIVE_FOLDER_ID]}
         media = MediaFileUpload(salida, mimetype="text/csv")
-        uploaded = drive_service.files().create(body=file_metadata, media_body=media, fields="id, webViewLink").execute()
+        uploaded = execute_with_retry(drive_service.files().create(body=file_metadata, media_body=media, fields="id, webViewLink"))
 
         drive_id = uploaded["id"]
         drive_link = uploaded["webViewLink"]
 
-        drive_service.permissions().create(fileId=drive_id, body={"type": "anyone", "role": "reader"}).execute()
+        execute_with_retry(drive_service.permissions().create(fileId=drive_id, body={"type": "anyone", "role": "reader"}))
 
     except Exception as e:
         return jsonify({"error": f"No se pudo subir a Google Drive: {e}"}), 500
