@@ -184,5 +184,69 @@ def procesar():
         "drive_link": drive_link
     })
 
+@app.route('/procesar_drive', methods=['POST'])
+def procesar_drive():
+    data = request.json
+    if not data or 'drive_file_id' not in data:
+        return jsonify({"error": "No se envió el ID del archivo de Google Drive"}), 400
+
+    drive_file_id = data['drive_file_id']
+
+    try:
+        # Download from Drive
+        request = drive_service.files().get_media(fileId=drive_file_id)
+        temp_path = os.path.join(UPLOAD_FOLDER, f"temp_drive_{drive_file_id}")
+        with open(temp_path, 'wb') as f:
+            f.write(request.execute())
+
+        # Get file name
+        file_info = drive_service.files().get(fileId=drive_file_id, fields="name").execute()
+        nombre = file_info['name']
+        ruta = temp_path
+        temp_file = True
+    except Exception as e:
+        return jsonify({"error": f"Error al descargar desde Google Drive: {e}"}), 500
+
+    extension = os.path.splitext(nombre)[1].lower()
+    try:
+        if extension == ".csv":
+            df = process_csv(ruta, HISTORIAL_FOLDER)
+        elif extension == ".txt":
+            df = process_txt(ruta, HISTORIAL_FOLDER)
+        elif extension == ".xlsx":
+            df = process_xlsx(ruta, HISTORIAL_FOLDER)
+        elif extension == ".json":
+            df = process_json(ruta, HISTORIAL_FOLDER)
+        else:
+            if temp_file:
+                os.remove(ruta)
+            return jsonify({"error": "Formato no soportado"}), 400
+    except Exception as e:
+        if temp_file:
+            os.remove(ruta)
+        return jsonify({"error": f"Error al procesar: {e}"}), 500
+
+    salida = os.path.join(PROCESSED_FOLDER, f"mejorado_{nombre}")
+    df.to_csv(salida, index=False, na_rep="NaN")
+
+    if temp_file:
+        os.remove(ruta)
+
+    # Upload to Drive
+    try:
+        file_metadata = {"name": os.path.basename(salida), "parents": [DRIVE_FOLDER_ID]}
+        media = MediaFileUpload(salida, mimetype="text/csv")
+        uploaded = drive_service.files().create(body=file_metadata, media_body=media, fields="id, webViewLink").execute()
+
+        drive_id = uploaded["id"]
+        drive_link = uploaded["webViewLink"]
+
+        drive_service.permissions().create(fileId=drive_id, body={"type": "anyone", "role": "reader"}).execute()
+
+    except Exception as e:
+        return jsonify({"error": f"No se pudo subir a Google Drive: {e}"}), 500
+
+    return jsonify({"success": True, "ruta_local": salida, "drive_id": drive_id, "drive_link": drive_link})
+
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=5000)
