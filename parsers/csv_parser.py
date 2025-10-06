@@ -2,16 +2,28 @@ import pandas as pd
 from pandas.errors import ParserError
 import shutil
 import os
+import csv
 from utils.cleaning_utils import limpiar_dataframe
 
 def corregir_csv_mal_formado(ruta_original, ruta_temporal="archivo_corregido.csv", columnas_esperadas=5):
-    with open(ruta_original, "r", encoding="utf-8") as original, open(ruta_temporal, "w", encoding="utf-8") as corregido:
-        for linea in original:
-            partes = linea.strip().split(",")
-            if len(partes) > columnas_esperadas:
-                partes = partes[:columnas_esperadas]
-            if len(partes) == columnas_esperadas:
-                corregido.write(",".join(partes) + "\n")
+    try:
+        with open(ruta_original, "r", encoding="utf-8") as original, open(ruta_temporal, "w", encoding="utf-8", newline='') as corregido:
+            reader = csv.reader(original)
+            writer = csv.writer(corregido)
+            for row in reader:
+                if len(row) > columnas_esperadas:
+                    row = row[:columnas_esperadas]
+                if len(row) == columnas_esperadas:
+                    writer.writerow(row)
+    except csv.Error:
+        # If still fails, fall back to simple split
+        with open(ruta_original, "r", encoding="utf-8") as original, open(ruta_temporal, "w", encoding="utf-8") as corregido:
+            for linea in original:
+                partes = linea.strip().split(",")
+                if len(partes) > columnas_esperadas:
+                    partes = partes[:columnas_esperadas]
+                if len(partes) == columnas_esperadas:
+                    corregido.write(",".join(partes) + "\n")
     return ruta_temporal
 
 def process_csv(ruta_archivo, historial_folder):
