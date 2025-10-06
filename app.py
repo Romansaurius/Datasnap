@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify, send_file
-import os, json, mysql.connector, requests, time
+from flask_cors import CORS
+import os, json, mysql.connector, requests, time, logging
 from parsers.csv_parser import process_csv
 from parsers.txt_parser import process_txt
 from parsers.xlsx_parser import process_xlsx
@@ -9,6 +10,8 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
 app = Flask(__name__)
+CORS(app)
+logging.basicConfig(level=logging.INFO)
 
 UPLOAD_FOLDER = 'uploads'
 PROCESSED_FOLDER = 'processed'
@@ -96,6 +99,7 @@ def procesar():
         return jsonify({"error": "No se envió el ID del archivo"}), 400
 
     id_archivo = data['id']
+    logging.info("Procesando archivo ID: %s", id_archivo)
 
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
@@ -103,6 +107,7 @@ def procesar():
         cursor.execute("SELECT ruta, nombre, drive_id_original FROM archivos WHERE id = %s", (id_archivo,))
         result = cursor.fetchone()
         conn.close()
+        logging.info("Resultado DB: %s", result)
         if not result:
             return jsonify({"error": "Archivo no encontrado en la base de datos"}), 404
 
@@ -110,17 +115,16 @@ def procesar():
         temp_file = False
 
         if result.get('drive_id_original'):
-            # Descargar desde Google Drive
-            download_url = f"https://drive.google.com/uc?export=download&id={result['drive_id_original']}"
-            response = requests.get(download_url)
-            if response.status_code == 200:
+            # Descargar desde Google Drive usando API
+            try:
+                request = drive_service.files().get_media(fileId=result['drive_id_original'])
                 temp_path = os.path.join(UPLOAD_FOLDER, f"temp_{id_archivo}_{result['nombre']}")
                 with open(temp_path, 'wb') as f:
-                    f.write(response.content)
+                    f.write(execute_with_retry(request))
                 ruta = temp_path
                 temp_file = True
-            else:
-                return jsonify({"error": "No se pudo descargar el archivo desde Google Drive"}), 500
+            except Exception as e:
+                return jsonify({"error": f"No se pudo descargar el archivo desde Google Drive: {e}"}), 500
         else:
             if not os.path.exists(ruta):
                 return jsonify({"error": f"No se encontró el archivo: {ruta}"}), 404
@@ -128,6 +132,7 @@ def procesar():
         return jsonify({"error": f"Error al conectar con la base de datos: {e}"}), 500
 
     extension = os.path.splitext(ruta)[1].lower()
+    logging.info("Procesando archivo con extensión: %s, ruta: %s", extension, ruta)
     try:
         if extension == ".csv":
             df = process_csv(ruta, HISTORIAL_FOLDER)
@@ -139,18 +144,23 @@ def procesar():
             df = process_json(ruta, HISTORIAL_FOLDER)
         else:
             return jsonify({"error": "Formato no soportado"}), 400
+        logging.info("Procesamiento completado, filas: %d", len(df))
     except Exception as e:
+        logging.error("Error al procesar: %s", e)
         return jsonify({"error": f"Error al procesar: {e}"}), 500
 
     salida = os.path.join(PROCESSED_FOLDER, f"mejorado_{os.path.basename(ruta)}.csv")
     df.to_csv(salida, index=False, na_rep="NaN")
+    logging.info("Archivo procesado guardado en: %s", salida)
 
     # Limpiar archivo temporal si se descargó
     if temp_file:
         os.remove(ruta)
+        logging.info("Archivo temporal eliminado")
 
     # Subir a Google Drive
     try:
+        logging.info("Subiendo a Google Drive: %s", salida)
         file_metadata = {
             "name": os.path.basename(salida),
             "parents": [DRIVE_FOLDER_ID]
@@ -164,6 +174,7 @@ def procesar():
 
         drive_id = uploaded.get("id")
         drive_link = uploaded.get("webViewLink")
+        logging.info("Subido a Drive, ID: %s", drive_id)
 
         # Hacer accesible por link público (opcional, quita si no querés compartirlo abiertamente)
         execute_with_retry(drive_service.permissions().create(
@@ -172,10 +183,12 @@ def procesar():
         ))
 
     except Exception as e:
+        logging.error("Error subiendo a Drive: %s", e)
         return jsonify({"error": f"No se pudo subir a Google Drive: {e}"}), 500
 
     # Actualizar base de datos
     try:
+        logging.info("Actualizando DB para ID: %s", id_archivo)
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor()
         cursor.execute("""
@@ -187,7 +200,9 @@ def procesar():
         """, (drive_id, drive_link, id_archivo))
         conn.commit()
         conn.close()
+        logging.info("DB actualizada exitosamente")
     except Exception as e:
+        logging.error("Error actualizando DB: %s", e)
         return jsonify({"error": f"No se pudo actualizar la base de datos: {e}"}), 500
 
     return jsonify({
@@ -263,4 +278,5 @@ def procesar_drive():
     return jsonify({"success": True, "ruta_local": salida, "drive_id": drive_id, "drive_link": drive_link})
 
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=5000)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host="0.0.0.0", port=port)
