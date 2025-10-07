@@ -134,10 +134,10 @@ def procesar():
         if result.get('drive_id_original'):
             # Descargar desde Google Drive usando API
             try:
-                request = drive_service.files().get_media(fileId=result['drive_id_original'])
+                drive_request = drive_service.files().get_media(fileId=result['drive_id_original'])
                 temp_path = os.path.join(UPLOAD_FOLDER, f"temp_{id_archivo}_{result['nombre']}")
                 with open(temp_path, 'wb') as f:
-                    f.write(execute_with_retry(request))
+                    f.write(execute_with_retry(drive_request))
                 ruta = temp_path
                 temp_file = True
             except Exception as e:
@@ -240,10 +240,10 @@ def procesar_drive():
 
     try:
         # Download from Drive
-        request = drive_service.files().get_media(fileId=drive_file_id)
+        drive_request = drive_service.files().get_media(fileId=drive_file_id)
         temp_path = os.path.join(UPLOAD_FOLDER, f"temp_drive_{drive_file_id}")
         with open(temp_path, 'wb') as f:
-            f.write(execute_with_retry(request))
+            f.write(execute_with_retry(drive_request))
 
         # Get file name
         file_info = execute_with_retry(drive_service.files().get(fileId=drive_file_id, fields="name"))
