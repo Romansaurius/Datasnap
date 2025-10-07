@@ -132,16 +132,30 @@ def procesar():
         temp_file = False
 
         if result.get('drive_id_original'):
-            # Descargar desde Google Drive usando API
+            # Verificar si el archivo existe en Google Drive
             try:
-                drive_request = drive_service.files().get_media(fileId=result['drive_id_original'])
-                temp_path = os.path.join(UPLOAD_FOLDER, f"temp_{id_archivo}_{result['nombre']}")
-                with open(temp_path, 'wb') as f:
-                    f.write(execute_with_retry(drive_request))
-                ruta = temp_path
-                temp_file = True
+                drive_service.files().get(fileId=result['drive_id_original'], fields="id").execute()
             except Exception as e:
-                return jsonify({"error": f"No se pudo descargar el archivo desde Google Drive: {e}"}), 500
+                if "File not found" in str(e) or "notFound" in str(e):
+                    # Si el archivo no existe en Drive, usar archivo local si existe
+                    if os.path.exists(result['ruta']):
+                        logging.warning(f"Archivo no encontrado en Drive, usando archivo local: {result['ruta']}")
+                        ruta = result['ruta']
+                    else:
+                        return jsonify({"error": f"Archivo no encontrado ni en Google Drive ni localmente. ID Drive: {result['drive_id_original']}"}), 404
+                else:
+                    return jsonify({"error": f"Error verificando archivo en Google Drive: {e}"}), 500
+            else:
+                # Descargar desde Google Drive usando API
+                try:
+                    drive_request = drive_service.files().get_media(fileId=result['drive_id_original'])
+                    temp_path = os.path.join(UPLOAD_FOLDER, f"temp_{id_archivo}_{result['nombre']}")
+                    with open(temp_path, 'wb') as f:
+                        f.write(execute_with_retry(drive_request))
+                    ruta = temp_path
+                    temp_file = True
+                except Exception as e:
+                    return jsonify({"error": f"No se pudo descargar el archivo desde Google Drive: {e}"}), 500
         else:
             if not os.path.exists(ruta):
                 return jsonify({"error": f"No se encontró el archivo: {ruta}"}), 404
