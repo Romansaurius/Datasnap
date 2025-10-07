@@ -121,7 +121,7 @@ def procesar():
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT ruta, nombre, drive_id_original FROM archivos WHERE id = %s", (id_archivo,))
+        cursor.execute("SELECT ruta, nombre, drive_id_original FROM archivos WHERE id = %s AND estado != 'borrado'", (id_archivo,))
         result = cursor.fetchone()
         conn.close()
         logging.info("Resultado DB: %s", result)
@@ -132,33 +132,48 @@ def procesar():
         temp_file = False
 
         if result.get('drive_id_original'):
+            logging.info(f"Intentando acceder a archivo Drive ID: {result['drive_id_original']}")
             # Verificar si el archivo existe en Google Drive
             try:
-                drive_service.files().get(fileId=result['drive_id_original'], fields="id").execute()
+                file_info = drive_service.files().get(fileId=result['drive_id_original'], fields="id,name,parents").execute()
+                logging.info(f"Archivo encontrado en Drive: {file_info}")
             except Exception as e:
-                if "File not found" in str(e) or "notFound" in str(e):
-                    # Si el archivo no existe en Drive, usar archivo local si existe
-                    if os.path.exists(result['ruta']):
-                        logging.warning(f"Archivo no encontrado en Drive, usando archivo local: {result['ruta']}")
+                logging.error(f"Error accediendo a Drive: {e}")
+                if "File not found" in str(e) or "notFound" in str(e) or "forbidden" in str(e).lower():
+                    # Si el archivo no existe en Drive o no tenemos permisos, usar archivo local si existe
+                    logging.warning(f"Archivo no accesible en Drive, verificando archivo local: {result['ruta']}")
+                    if result['ruta'] and os.path.exists(result['ruta']):
+                        logging.info(f"Usando archivo local: {result['ruta']}")
                         ruta = result['ruta']
                     else:
-                        return jsonify({"error": f"Archivo no encontrado ni en Google Drive ni localmente. ID Drive: {result['drive_id_original']}"}), 404
+                        logging.error(f"Archivo local tampoco existe: {result['ruta']}")
+                        return jsonify({"error": f"Archivo no accesible. Drive ID: {result['drive_id_original']}, Ruta local: {result['ruta']}"}), 404
                 else:
                     return jsonify({"error": f"Error verificando archivo en Google Drive: {e}"}), 500
             else:
                 # Descargar desde Google Drive usando API
                 try:
+                    logging.info(f"Descargando archivo desde Drive: {result['drive_id_original']}")
                     drive_request = drive_service.files().get_media(fileId=result['drive_id_original'])
                     temp_path = os.path.join(UPLOAD_FOLDER, f"temp_{id_archivo}_{result['nombre']}")
                     with open(temp_path, 'wb') as f:
                         f.write(execute_with_retry(drive_request))
                     ruta = temp_path
                     temp_file = True
+                    logging.info(f"Archivo descargado exitosamente a: {temp_path}")
                 except Exception as e:
-                    return jsonify({"error": f"No se pudo descargar el archivo desde Google Drive: {e}"}), 500
+                    logging.error(f"Error descargando desde Drive: {e}")
+                    # Fallback a archivo local si existe
+                    if result['ruta'] and os.path.exists(result['ruta']):
+                        logging.info(f"Fallback a archivo local: {result['ruta']}")
+                        ruta = result['ruta']
+                    else:
+                        return jsonify({"error": f"No se pudo descargar desde Drive ni encontrar archivo local: {e}"}), 500
         else:
-            if not os.path.exists(ruta):
-                return jsonify({"error": f"No se encontró el archivo: {ruta}"}), 404
+            logging.info(f"No hay Drive ID, verificando archivo local: {result['ruta']}")
+            if not result['ruta'] or not os.path.exists(result['ruta']):
+                return jsonify({"error": f"No se encontró el archivo local: {result['ruta']}"}), 404
+            ruta = result['ruta']
     except Exception as e:
         return jsonify({"error": f"Error al conectar con la base de datos: {e}"}), 500
 
@@ -189,33 +204,14 @@ def procesar():
         os.remove(ruta)
         logging.info("Archivo temporal eliminado")
 
-    # Subir a Google Drive
+    # Leer el archivo optimizado para enviarlo como respuesta
     try:
-        logging.info("Subiendo a Google Drive: %s", salida)
-        file_metadata = {
-            "name": os.path.basename(salida),
-            "parents": [DRIVE_FOLDER_ID]
-        }
-        media = MediaFileUpload(salida, mimetype="text/csv")
-        uploaded = execute_with_retry(drive_service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields="id, webViewLink, webContentLink"
-        ))
-
-        drive_id = uploaded.get("id")
-        drive_link = uploaded.get("webViewLink")
-        logging.info("Subido a Drive, ID: %s", drive_id)
-
-        # Hacer accesible por link público (opcional, quita si no querés compartirlo abiertamente)
-        execute_with_retry(drive_service.permissions().create(
-            fileId=drive_id,
-            body={"type": "anyone", "role": "reader"},
-        ))
-
+        with open(salida, 'r', encoding='utf-8') as f:
+            archivo_optimizado = f.read()
+        logging.info("Archivo optimizado leído exitosamente")
     except Exception as e:
-        logging.error("Error subiendo a Drive: %s", e)
-        return jsonify({"error": f"No se pudo subir a Google Drive: {e}"}), 500
+        logging.error("Error leyendo archivo optimizado: %s", e)
+        return jsonify({"error": f"Error leyendo archivo optimizado: {e}"}), 500
 
     # Actualizar base de datos
     try:
@@ -224,11 +220,9 @@ def procesar():
         cursor = conn.cursor()
         cursor.execute("""
             UPDATE archivos
-            SET estado = 'optimizado',
-                drive_id = %s,
-                drive_link = %s
+            SET estado = 'optimizado'
             WHERE id = %s
-        """, (drive_id, drive_link, id_archivo))
+        """, (id_archivo,))
         conn.commit()
         conn.close()
         logging.info("DB actualizada exitosamente")
@@ -239,10 +233,41 @@ def procesar():
     return jsonify({
         "success": True,
         "archivo_id": id_archivo,
-        "ruta_local": salida,
-        "drive_id": drive_id,
-        "drive_link": drive_link
+        "archivo_optimizado": archivo_optimizado,
+        "nombre_archivo": f"optimizado_{result['nombre']}"
     })
+
+@app.route('/debug_file', methods=['POST'])
+def debug_file():
+    data = request.json
+    if not data or 'id' not in data:
+        return jsonify({"error": "No se envió el ID del archivo"}), 400
+
+    id_archivo = data['id']
+    
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM archivos WHERE id = %s", (id_archivo,))
+        result = cursor.fetchone()
+        conn.close()
+        
+        if not result:
+            return jsonify({"error": "Archivo no encontrado", "id": id_archivo})
+            
+        debug_info = {
+            "archivo_db": result,
+            "ruta_existe": os.path.exists(result['ruta']) if result['ruta'] else False,
+            "drive_id_original": result.get('drive_id_original'),
+            "working_directory": os.getcwd(),
+            "upload_folder_exists": os.path.exists(UPLOAD_FOLDER),
+            "upload_folder_contents": os.listdir(UPLOAD_FOLDER) if os.path.exists(UPLOAD_FOLDER) else []
+        }
+        
+        return jsonify(debug_info)
+        
+    except Exception as e:
+        return jsonify({"error": f"Error en debug: {e}"})
 
 @app.route('/procesar_drive', methods=['POST'])
 def procesar_drive():
