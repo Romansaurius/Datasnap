@@ -6,8 +6,6 @@ from parsers.txt_parser import process_txt
 from parsers.xlsx_parser import process_xlsx
 from parsers.json_parser import process_json
 from google.oauth2 import service_account
-from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
@@ -32,13 +30,27 @@ DB_CONFIG = {
 }
 
 # Config Google Drive
-creds_info = json.loads(os.environ["GCP_SERVICE_ACCOUNT_JSON"])
-creds = service_account.Credentials.from_service_account_info(
-    creds_info,
-    scopes=["https://www.googleapis.com/auth/drive"]
-)
-drive_service = build("drive", "v3", credentials=creds)
-DRIVE_FOLDER_ID = os.environ["GDRIVE_FOLDER_ID"]
+try:
+    creds_json = os.environ.get("GCP_SERVICE_ACCOUNT_JSON")
+    if not creds_json:
+        raise ValueError("GCP_SERVICE_ACCOUNT_JSON environment variable not found")
+    
+    creds_info = json.loads(creds_json)
+    creds = service_account.Credentials.from_service_account_info(
+        creds_info,
+        scopes=["https://www.googleapis.com/auth/drive"]
+    )
+    drive_service = build("drive", "v3", credentials=creds)
+    
+    DRIVE_FOLDER_ID = os.environ.get("GDRIVE_FOLDER_ID")
+    if not DRIVE_FOLDER_ID:
+        raise ValueError("GDRIVE_FOLDER_ID environment variable not found")
+        
+    logging.info("Google Drive configurado correctamente")
+except Exception as e:
+    logging.error(f"Error configurando Google Drive: {e}")
+    drive_service = None
+    DRIVE_FOLDER_ID = None
 
 def execute_with_retry(request):
     max_retries = 5
@@ -96,32 +108,15 @@ def upload():
 
 @app.route('/procesar', methods=['POST'])
 def procesar():
+    if not drive_service:
+        return jsonify({"error": "Google Drive no está configurado correctamente"}), 500
+        
     data = request.json
     if not data or 'id' not in data:
         return jsonify({"error": "No se envió el ID del archivo"}), 400
 
     id_archivo = data['id']
-    google_refresh_token = data.get('google_refresh_token')
     logging.info("Procesando archivo ID: %s", id_archivo)
-
-    # Setup Drive service
-    if google_refresh_token:
-        client_id = os.environ.get("GOOGLE_CLIENT_ID")
-        client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
-        user_creds = Credentials(
-            None,
-            refresh_token=google_refresh_token,
-            token_uri='https://oauth2.googleapis.com/token',
-            client_id=client_id,
-            client_secret=client_secret
-        )
-        if user_creds.expired:
-            user_creds.refresh(Request())
-        drive_service_to_use = build("drive", "v3", credentials=user_creds)
-        drive_folder = ['root']
-    else:
-        drive_service_to_use = drive_service
-        drive_folder = [DRIVE_FOLDER_ID]
 
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
@@ -139,10 +134,10 @@ def procesar():
         if result.get('drive_id_original'):
             # Descargar desde Google Drive usando API
             try:
-                drive_request = drive_service_to_use.files().get_media(fileId=result['drive_id_original'])
+                request = drive_service.files().get_media(fileId=result['drive_id_original'])
                 temp_path = os.path.join(UPLOAD_FOLDER, f"temp_{id_archivo}_{result['nombre']}")
                 with open(temp_path, 'wb') as f:
-                    f.write(execute_with_retry(drive_request))
+                    f.write(execute_with_retry(request))
                 ruta = temp_path
                 temp_file = True
             except Exception as e:
@@ -185,10 +180,10 @@ def procesar():
         logging.info("Subiendo a Google Drive: %s", salida)
         file_metadata = {
             "name": os.path.basename(salida),
-            "parents": drive_folder
+            "parents": [DRIVE_FOLDER_ID]
         }
         media = MediaFileUpload(salida, mimetype="text/csv")
-        uploaded = execute_with_retry(drive_service_to_use.files().create(
+        uploaded = execute_with_retry(drive_service.files().create(
             body=file_metadata,
             media_body=media,
             fields="id, webViewLink, webContentLink"
@@ -199,7 +194,7 @@ def procesar():
         logging.info("Subido a Drive, ID: %s", drive_id)
 
         # Hacer accesible por link público (opcional, quita si no querés compartirlo abiertamente)
-        execute_with_retry(drive_service_to_use.permissions().create(
+        execute_with_retry(drive_service.permissions().create(
             fileId=drive_id,
             body={"type": "anyone", "role": "reader"},
         ))
