@@ -5,6 +5,7 @@ from parsers.csv_parser import process_csv
 from parsers.txt_parser import process_txt
 from parsers.xlsx_parser import process_xlsx
 from parsers.json_parser import process_json
+from parsers.sql_parser import process_sql
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -59,7 +60,7 @@ def execute_with_retry(request):
             return request.execute()
         except Exception as e:
             if 'quotaExceeded' in str(e) or 'quota_exceeded' in str(e).lower():
-                wait_time = 2 ** attempt  # exponential backoff
+                wait_time = 2 ** attempt
                 time.sleep(wait_time)
                 continue
             else:
@@ -87,7 +88,6 @@ def upload_original():
         drive_id = uploaded["id"]
         drive_link = uploaded["webViewLink"]
 
-        # Hacerlo accesible públicamente
         execute_with_retry(drive_service.permissions().create(
             fileId=drive_id,
             body={"type": "anyone", "role": "reader"}
@@ -124,7 +124,7 @@ def procesar():
         cursor.execute("SELECT ruta, nombre, drive_id_original FROM archivos WHERE id = %s AND estado != 'borrado'", (id_archivo,))
         result = cursor.fetchone()
         conn.close()
-        logging.info("Resultado DB: %s", result)
+        
         if not result:
             return jsonify({"error": "Archivo no encontrado en la base de datos"}), 404
 
@@ -132,45 +132,24 @@ def procesar():
         temp_file = False
 
         if result.get('drive_id_original'):
-            logging.info(f"Intentando acceder a archivo Drive ID: {result['drive_id_original']}")
-            # Verificar si el archivo existe en Google Drive
             try:
                 file_info = drive_service.files().get(fileId=result['drive_id_original'], fields="id,name,parents").execute()
                 logging.info(f"Archivo encontrado en Drive: {file_info}")
+                
+                drive_request = drive_service.files().get_media(fileId=result['drive_id_original'])
+                temp_path = os.path.join(UPLOAD_FOLDER, f"temp_{id_archivo}_{result['nombre']}")
+                with open(temp_path, 'wb') as f:
+                    f.write(execute_with_retry(drive_request))
+                ruta = temp_path
+                temp_file = True
+                logging.info(f"Archivo descargado exitosamente a: {temp_path}")
             except Exception as e:
                 logging.error(f"Error accediendo a Drive: {e}")
-                if "File not found" in str(e) or "notFound" in str(e) or "forbidden" in str(e).lower():
-                    # Si el archivo no existe en Drive o no tenemos permisos, usar archivo local si existe
-                    logging.warning(f"Archivo no accesible en Drive, verificando archivo local: {result['ruta']}")
-                    if result['ruta'] and os.path.exists(result['ruta']):
-                        logging.info(f"Usando archivo local: {result['ruta']}")
-                        ruta = result['ruta']
-                    else:
-                        logging.error(f"Archivo local tampoco existe: {result['ruta']}")
-                        return jsonify({"error": f"Archivo no accesible. Drive ID: {result['drive_id_original']}, Ruta local: {result['ruta']}"}), 404
+                if result['ruta'] and os.path.exists(result['ruta']):
+                    ruta = result['ruta']
                 else:
-                    return jsonify({"error": f"Error verificando archivo en Google Drive: {e}"}), 500
-            else:
-                # Descargar desde Google Drive usando API
-                try:
-                    logging.info(f"Descargando archivo desde Drive: {result['drive_id_original']}")
-                    drive_request = drive_service.files().get_media(fileId=result['drive_id_original'])
-                    temp_path = os.path.join(UPLOAD_FOLDER, f"temp_{id_archivo}_{result['nombre']}")
-                    with open(temp_path, 'wb') as f:
-                        f.write(execute_with_retry(drive_request))
-                    ruta = temp_path
-                    temp_file = True
-                    logging.info(f"Archivo descargado exitosamente a: {temp_path}")
-                except Exception as e:
-                    logging.error(f"Error descargando desde Drive: {e}")
-                    # Fallback a archivo local si existe
-                    if result['ruta'] and os.path.exists(result['ruta']):
-                        logging.info(f"Fallback a archivo local: {result['ruta']}")
-                        ruta = result['ruta']
-                    else:
-                        return jsonify({"error": f"No se pudo descargar desde Drive ni encontrar archivo local: {e}"}), 500
+                    return jsonify({"error": f"Archivo no accesible: {e}"}), 404
         else:
-            logging.info(f"No hay Drive ID, verificando archivo local: {result['ruta']}")
             if not result['ruta'] or not os.path.exists(result['ruta']):
                 return jsonify({"error": f"No se encontró el archivo local: {result['ruta']}"}), 404
             ruta = result['ruta']
@@ -179,160 +158,117 @@ def procesar():
 
     extension = os.path.splitext(ruta)[1].lower()
     logging.info("Procesando archivo con extensión: %s, ruta: %s", extension, ruta)
+    
     try:
         if extension == ".csv":
             df = process_csv(ruta, HISTORIAL_FOLDER)
+            salida = os.path.join(PROCESSED_FOLDER, f"mejorado_{os.path.basename(ruta)}.csv")
+            df.to_csv(salida, index=False, na_rep="NaN")
         elif extension == ".txt":
             df = process_txt(ruta, HISTORIAL_FOLDER)
+            salida = os.path.join(PROCESSED_FOLDER, f"mejorado_{os.path.basename(ruta)}.csv")
+            df.to_csv(salida, index=False, na_rep="NaN")
         elif extension == ".xlsx":
             df = process_xlsx(ruta, HISTORIAL_FOLDER)
+            salida = os.path.join(PROCESSED_FOLDER, f"mejorado_{os.path.basename(ruta)}.csv")
+            df.to_csv(salida, index=False, na_rep="NaN")
         elif extension == ".json":
             df = process_json(ruta, HISTORIAL_FOLDER)
+            salida = os.path.join(PROCESSED_FOLDER, f"mejorado_{os.path.basename(ruta)}.csv")
+            df.to_csv(salida, index=False, na_rep="NaN")
+        elif extension == ".sql":
+            optimized_sql = process_sql(ruta, HISTORIAL_FOLDER)
+            salida = os.path.join(PROCESSED_FOLDER, f"optimizado_{os.path.basename(ruta)}")
+            with open(salida, 'w', encoding='utf-8') as f:
+                f.write(optimized_sql)
         else:
             return jsonify({"error": "Formato no soportado"}), 400
-        logging.info("Procesamiento completado, filas: %d", len(df))
+        
+        logging.info("Procesamiento completado, archivo guardado en: %s", salida)
     except Exception as e:
         logging.error("Error al procesar: %s", e)
         return jsonify({"error": f"Error al procesar: {e}"}), 500
 
-    salida = os.path.join(PROCESSED_FOLDER, f"mejorado_{os.path.basename(ruta)}.csv")
-    df.to_csv(salida, index=False, na_rep="NaN")
-    logging.info("Archivo procesado guardado en: %s", salida)
-
-    # Limpiar archivo temporal si se descargó
+    # Limpiar archivo temporal
     if temp_file:
-        os.remove(ruta)
-        logging.info("Archivo temporal eliminado")
-
-    # Leer el archivo optimizado para enviarlo como respuesta
-    try:
-        with open(salida, 'r', encoding='utf-8') as f:
-            archivo_optimizado = f.read()
-        logging.info("Archivo optimizado leído exitosamente")
-    except Exception as e:
-        logging.error("Error leyendo archivo optimizado: %s", e)
-        return jsonify({"error": f"Error leyendo archivo optimizado: {e}"}), 500
-
-    # Actualizar base de datos
-    try:
-        logging.info("Actualizando DB para ID: %s", id_archivo)
-        conn = mysql.connector.connect(**DB_CONFIG)
-        cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE archivos
-            SET estado = 'optimizado'
-            WHERE id = %s
-        """, (id_archivo,))
-        conn.commit()
-        conn.close()
-        logging.info("DB actualizada exitosamente")
-    except Exception as e:
-        logging.error("Error actualizando DB: %s", e)
-        return jsonify({"error": f"No se pudo actualizar la base de datos: {e}"}), 500
-
-    return jsonify({
-        "success": True,
-        "archivo_id": id_archivo,
-        "archivo_optimizado": archivo_optimizado,
-        "nombre_archivo": f"optimizado_{result['nombre']}"
-    })
-
-@app.route('/debug_file', methods=['POST'])
-def debug_file():
-    data = request.json
-    if not data or 'id' not in data:
-        return jsonify({"error": "No se envió el ID del archivo"}), 400
-
-    id_archivo = data['id']
-    
-    try:
-        conn = mysql.connector.connect(**DB_CONFIG)
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM archivos WHERE id = %s", (id_archivo,))
-        result = cursor.fetchone()
-        conn.close()
-        
-        if not result:
-            return jsonify({"error": "Archivo no encontrado", "id": id_archivo})
-            
-        debug_info = {
-            "archivo_db": result,
-            "ruta_existe": os.path.exists(result['ruta']) if result['ruta'] else False,
-            "drive_id_original": result.get('drive_id_original'),
-            "working_directory": os.getcwd(),
-            "upload_folder_exists": os.path.exists(UPLOAD_FOLDER),
-            "upload_folder_contents": os.listdir(UPLOAD_FOLDER) if os.path.exists(UPLOAD_FOLDER) else []
-        }
-        
-        return jsonify(debug_info)
-        
-    except Exception as e:
-        return jsonify({"error": f"Error en debug: {e}"})
-
-@app.route('/procesar_drive', methods=['POST'])
-def procesar_drive():
-    data = request.json
-    if not data or 'drive_file_id' not in data:
-        return jsonify({"error": "No se envió el ID del archivo de Google Drive"}), 400
-
-    drive_file_id = data['drive_file_id']
-
-    try:
-        # Download from Drive
-        drive_request = drive_service.files().get_media(fileId=drive_file_id)
-        temp_path = os.path.join(UPLOAD_FOLDER, f"temp_drive_{drive_file_id}")
-        with open(temp_path, 'wb') as f:
-            f.write(execute_with_retry(drive_request))
-
-        # Get file name
-        file_info = execute_with_retry(drive_service.files().get(fileId=drive_file_id, fields="name"))
-        nombre = file_info['name']
-        ruta = temp_path
-        temp_file = True
-    except Exception as e:
-        return jsonify({"error": f"Error al descargar desde Google Drive: {e}"}), 500
-
-    extension = os.path.splitext(nombre)[1].lower()
-    try:
-        if extension == ".csv":
-            df = process_csv(ruta, HISTORIAL_FOLDER)
-        elif extension == ".txt":
-            df = process_txt(ruta, HISTORIAL_FOLDER)
-        elif extension == ".xlsx":
-            df = process_xlsx(ruta, HISTORIAL_FOLDER)
-        elif extension == ".json":
-            df = process_json(ruta, HISTORIAL_FOLDER)
-        else:
-            if temp_file:
-                os.remove(ruta)
-            return jsonify({"error": "Formato no soportado"}), 400
-    except Exception as e:
-        if temp_file:
+        try:
             os.remove(ruta)
-        return jsonify({"error": f"Error al procesar: {e}"}), 500
+            logging.info(f"Archivo temporal eliminado: {ruta}")
+        except Exception as e:
+            logging.warning(f"No se pudo eliminar archivo temporal: {e}")
 
-    salida = os.path.join(PROCESSED_FOLDER, f"mejorado_{nombre}")
-    df.to_csv(salida, index=False, na_rep="NaN")
-
-    if temp_file:
-        os.remove(ruta)
-
-    # Upload to Drive
+    # Subir archivo procesado a Drive
     try:
-        file_metadata = {"name": os.path.basename(salida), "parents": [DRIVE_FOLDER_ID]}
-        media = MediaFileUpload(salida, mimetype="text/csv")
-        uploaded = execute_with_retry(drive_service.files().create(body=file_metadata, media_body=media, fields="id, webViewLink"))
+        file_metadata = {"name": f"procesado_{os.path.basename(ruta)}", "parents": [DRIVE_FOLDER_ID]}
+        media = MediaFileUpload(salida, mimetype="application/octet-stream")
+        uploaded = execute_with_retry(drive_service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields="id, webViewLink"
+        ))
 
         drive_id = uploaded["id"]
         drive_link = uploaded["webViewLink"]
 
-        execute_with_retry(drive_service.permissions().create(fileId=drive_id, body={"type": "anyone", "role": "reader"}))
+        execute_with_retry(drive_service.permissions().create(
+            fileId=drive_id,
+            body={"type": "anyone", "role": "reader"}
+        ))
 
+        # Actualizar DB
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE archivos SET estado = 'procesado', drive_id_procesado = %s, drive_link_procesado = %s WHERE id = %s",
+            (drive_id, drive_link, id_archivo)
+        )
+        conn.commit()
+        conn.close()
+
+        # Leer contenido para respuesta
+        if extension == ".sql":
+            with open(salida, 'r', encoding='utf-8') as f:
+                contenido = f.read()
+        else:
+            contenido = "Archivo procesado exitosamente"
+
+        return jsonify({
+            "success": True,
+            "drive_id": drive_id,
+            "drive_link": drive_link,
+            "archivo_local": salida,
+            "contenido": contenido
+        })
     except Exception as e:
-        return jsonify({"error": f"No se pudo subir a Google Drive: {e}"}), 500
+        logging.error("Error subiendo a Drive: %s", e)
+        return jsonify({"error": f"Error subiendo archivo procesado: {e}"}), 500
 
-    return jsonify({"success": True, "ruta_local": salida, "drive_id": drive_id, "drive_link": drive_link})
+@app.route('/descargar/<int:id_archivo>', methods=['GET'])
+def descargar(id_archivo):
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT drive_id_procesado, nombre FROM archivos WHERE id = %s AND estado = 'procesado'", (id_archivo,))
+        result = cursor.fetchone()
+        conn.close()
+
+        if not result or not result['drive_id_procesado']:
+            return jsonify({"error": "Archivo procesado no encontrado"}), 404
+
+        drive_request = drive_service.files().get_media(fileId=result['drive_id_procesado'])
+        temp_path = os.path.join(PROCESSED_FOLDER, f"descarga_{result['nombre']}")
+        
+        with open(temp_path, 'wb') as f:
+            f.write(execute_with_retry(drive_request))
+
+        return send_file(temp_path, as_attachment=True, download_name=f"procesado_{result['nombre']}")
+    except Exception as e:
+        return jsonify({"error": f"Error descargando archivo: {e}"}), 500
+
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({"status": "ok", "drive_configured": drive_service is not None})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host='0.0.0.0', port=port, debug=False)
