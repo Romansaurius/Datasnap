@@ -70,17 +70,31 @@ def upload_original():
     if 'file' not in request.files:
         return jsonify({"success": False, "error": "No se envió archivo"}), 400
 
-    if not drive_service or not DRIVE_FOLDER_ID:
-        return jsonify({"success": False, "error": "Google Drive no configurado"}), 500
+    google_refresh_token = request.form.get('google_refresh_token')
+    if not google_refresh_token:
+        return jsonify({"success": False, "error": "Token de Google requerido"}), 400
 
     file = request.files['file']
     local_path = os.path.join(UPLOAD_FOLDER, file.filename)
     file.save(local_path)
 
     try:
-        file_metadata = {"name": file.filename, "parents": [DRIVE_FOLDER_ID]}
+        client_id = os.environ.get("GOOGLE_CLIENT_ID")
+        client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
+        user_creds = Credentials(
+            None,
+            refresh_token=google_refresh_token,
+            token_uri='https://oauth2.googleapis.com/token',
+            client_id=client_id,
+            client_secret=client_secret
+        )
+        if user_creds.expired:
+            user_creds.refresh(Request())
+        user_drive_service = build("drive", "v3", credentials=user_creds)
+
+        file_metadata = {"name": file.filename}
         media = MediaFileUpload(local_path, mimetype="application/octet-stream")
-        uploaded = execute_with_retry(drive_service.files().create(
+        uploaded = execute_with_retry(user_drive_service.files().create(
             body=file_metadata,
             media_body=media,
             fields="id, webViewLink"
@@ -88,12 +102,6 @@ def upload_original():
 
         drive_id = uploaded["id"]
         drive_link = uploaded["webViewLink"]
-
-        # Hacerlo accesible públicamente
-        execute_with_retry(drive_service.permissions().create(
-            fileId=drive_id,
-            body={"type": "anyone", "role": "reader"}
-        ))
 
         return jsonify({"success": True, "drive_id": drive_id, "drive_link": drive_link})
     except Exception as e:
