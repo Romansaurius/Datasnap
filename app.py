@@ -113,10 +113,10 @@ def test_db():
         logging.info(f"Testing DB connection: host={DB_CONFIG['host']}, user={DB_CONFIG['user']}, db={DB_CONFIG['database']}, port={DB_CONFIG['port']}")
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor()
-        cursor.execute("SELECT 1")
-        result = cursor.fetchone()
+        cursor.execute("DESCRIBE archivos")
+        columns = cursor.fetchall()
         conn.close()
-        return jsonify({"status": "ok", "message": "Base de datos conectada correctamente"})
+        return jsonify({"status": "ok", "message": "BD conectada", "columns": [col[0] for col in columns]})
     except Exception as e:
         logging.error(f"Error de conexión BD: {e}")
         return jsonify({"status": "error", "message": f"Error BD: {str(e)}"})
@@ -248,10 +248,10 @@ def procesar():
         drive_link = uploaded.get("webViewLink")
         logging.info("Subido a Drive, ID: %s", drive_id)
 
-        # Hacer accesible por link público (opcional, quita si no querés compartirlo abiertamente)
+        # Hacer accesible por link público
         execute_with_retry(drive_service_to_use.permissions().create(
             fileId=drive_id,
-            body={"type": "anyone", "role": "reader"},
+            body={"type": "anyone", "role": "reader"}
         ))
 
     except Exception as e:
@@ -266,8 +266,8 @@ def procesar():
         cursor.execute("""
             UPDATE archivos
             SET estado = 'optimizado',
-                drive_id = %s,
-                drive_link = %s
+                drive_id_optimizado = %s,
+                drive_link_optimizado = %s
             WHERE id = %s
         """, (drive_id, drive_link, id_archivo))
         conn.commit()
