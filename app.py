@@ -107,6 +107,20 @@ def upload_original():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
+@app.route('/test_db', methods=['GET'])
+def test_db():
+    try:
+        logging.info(f"Testing DB connection: host={DB_CONFIG['host']}, user={DB_CONFIG['user']}, db={DB_CONFIG['database']}, port={DB_CONFIG['port']}")
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1")
+        result = cursor.fetchone()
+        conn.close()
+        return jsonify({"status": "ok", "message": "Base de datos conectada correctamente"})
+    except Exception as e:
+        logging.error(f"Error de conexión BD: {e}")
+        return jsonify({"status": "error", "message": f"Error BD: {str(e)}"})
+
 @app.route('/test_drive', methods=['GET'])
 def test_drive():
     if not drive_service or not DRIVE_FOLDER_ID:
@@ -158,6 +172,7 @@ def procesar():
         drive_folder = [DRIVE_FOLDER_ID]
 
     try:
+        logging.info(f"Intentando conectar a BD: host={DB_CONFIG['host']}, user={DB_CONFIG['user']}, db={DB_CONFIG['database']}, port={DB_CONFIG['port']}")
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT ruta, nombre, drive_id_original FROM archivos WHERE id = %s", (id_archivo,))
@@ -185,6 +200,7 @@ def procesar():
             if not os.path.exists(ruta):
                 return jsonify({"error": f"No se encontró el archivo: {ruta}"}), 404
     except Exception as e:
+        logging.error(f"Error de conexión BD: {e}")
         return jsonify({"error": f"Error al conectar con la base de datos: {e}"}), 500
 
     extension = os.path.splitext(ruta)[1].lower()
