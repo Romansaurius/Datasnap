@@ -1,9 +1,10 @@
 """
-DATASNAP IA UNIVERSAL - CON PANDAS EN REQUIREMENTS
+DATASNAP IA UNIVERSAL - VERSION FINAL CON CORS
 IA GLOBAL PERFECTA que optimiza CUALQUIER archivo
 """
 
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import pandas as pd
 import numpy as np
 import os
@@ -14,6 +15,7 @@ import traceback
 from io import StringIO
 
 app = Flask(__name__)
+CORS(app, origins=["https://datasnap.escuelarobertoarlt.com", "http://localhost"])
 
 class DataSnapUniversalAI:
     """IA UNIVERSAL PERFECTA"""
@@ -381,7 +383,7 @@ def health():
             'CSV_Advanced', 'JSON_Advanced', 'SQL_Advanced', 'TXT_Advanced',
             'Auto_Detection', 'Smart_Parsing', 'AI_Corrections', 'Duplicate_Removal',
             'Email_Fixing', 'Name_Normalization', 'Price_Cleaning', 'Age_Validation',
-            'Boolean_Normalization', 'Pandas_Powered'
+            'Boolean_Normalization', 'Pandas_Powered', 'CORS_Enabled'
         ],
         'stats': universal_ai.stats,
         'timestamp': datetime.now().isoformat()
@@ -410,8 +412,8 @@ Maria,maria@hotmial.com,,abc,1
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    print("DATASNAP IA UNIVERSAL CON PANDAS INICIADA")
+    print("DATASNAP IA UNIVERSAL CON PANDAS Y CORS INICIADA")
     print(f"Pandas version: {pd.__version__}")
     print(f"Numpy version: {np.__version__}")
-    print("Capacidades: Deteccion automatica, Parsing con pandas, IA avanzada")
+    print("Capacidades: Deteccion automatica, Parsing con pandas, IA avanzada, CORS habilitado")
     app.run(host='0.0.0.0', port=port)
