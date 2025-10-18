@@ -13,6 +13,14 @@ import re
 from datetime import datetime
 import traceback
 from io import StringIO, BytesIO
+try:
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+    from googleapiclient.discovery import build
+    from googleapiclient.http import MediaIoBaseUpload
+    GOOGLE_AVAILABLE = True
+except ImportError:
+    GOOGLE_AVAILABLE = False
 
 app = Flask(__name__)
 CORS(app, origins=["https://datasnap.escuelarobertoarlt.com", "http://localhost"])
@@ -425,6 +433,60 @@ class DataSnapPerfectAI:
 # Instancia global
 perfect_ai = DataSnapPerfectAI()
 
+def upload_to_google_drive(file_content, filename, refresh_token):
+    """Subida a Google Drive del usuario"""
+    try:
+        if not GOOGLE_AVAILABLE:
+            return {'success': False, 'error': 'Google Drive not available'}
+        
+        client_id = os.environ.get('GOOGLE_CLIENT_ID')
+        client_secret = os.environ.get('GOOGLE_CLIENT_SECRET')
+        
+        if not client_id or not client_secret:
+            return {'success': False, 'error': 'Google credentials not configured'}
+        
+        # Crear credenciales del usuario
+        creds = Credentials(
+            token=None,
+            refresh_token=refresh_token,
+            token_uri='https://oauth2.googleapis.com/token',
+            client_id=client_id,
+            client_secret=client_secret
+        )
+        
+        # Refrescar token si es necesario
+        if not creds.valid:
+            creds.refresh(Request())
+        
+        # Crear servicio de Drive
+        service = build('drive', 'v3', credentials=creds)
+        
+        # Subir archivo
+        file_metadata = {'name': filename}
+        media = MediaIoBaseUpload(
+            BytesIO(file_content.encode('utf-8')),
+            mimetype='text/plain'
+        )
+        
+        file = service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields='id'
+        ).execute()
+        
+        drive_id = file.get('id')
+        drive_link = f"https://drive.google.com/file/d/{drive_id}/view"
+        
+        return {
+            'success': True,
+            'drive_id': drive_id,
+            'drive_link': drive_link
+        }
+        
+    except Exception as e:
+        print(f"Error Google Drive: {e}")
+        return {'success': False, 'error': str(e)}
+
 @app.route('/procesar', methods=['POST'])
 def procesar():
     """ENDPOINT PERFECTO"""
@@ -439,17 +501,44 @@ def procesar():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/upload_original', methods=['POST'])
+def upload_original():
+    """ENDPOINT SUBIDA A GOOGLE DRIVE"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        refresh_token = request.form.get('google_refresh_token')
+        
+        if not refresh_token:
+            return jsonify({'success': False, 'error': 'No Google refresh token'}), 400
+        
+        # Leer contenido del archivo
+        file_content = file.read().decode('utf-8')
+        
+        # Subir a Google Drive del usuario
+        result = upload_to_google_drive(file_content, file.filename, refresh_token)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        print(f"Error en upload_original: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/health', methods=['GET'])
 def health():
     """Health check perfecto"""
     return jsonify({
         'status': 'perfect',
         'ia_version': 'PERFECT_AI_v1.0',
+        'google_drive_available': GOOGLE_AVAILABLE,
         'capabilities': [
             'Perfect SQL structure preservation',
             'Normalized data optimization',
             'Multi-format support',
-            'Referential integrity maintenance'
+            'Referential integrity maintenance',
+            'Google Drive integration'
         ],
         'timestamp': datetime.now().isoformat()
     })
@@ -460,4 +549,5 @@ if __name__ == '__main__':
     print("[OK] Estructura de tablas preservada")
     print("[OK] Formas normales respetadas")
     print("[OK] Optimizaciones inteligentes aplicadas")
+    print(f"[OK] Google Drive disponible: {GOOGLE_AVAILABLE}")
     app.run(host='0.0.0.0', port=port)
