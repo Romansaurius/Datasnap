@@ -458,7 +458,38 @@ class DataSnapUniversalAI:
         if file_type == 'sql' and '_table_type' in df.columns:
             return self._generate_universal_sql(df)
         elif file_type == 'json':
-            return df.to_json(orient='records', indent=2)
+            # Para JSON, limpiar valores vacíos igual que CSV
+            df_clean = df.copy()
+            
+            # Eliminar filas completamente vacías
+            df_clean = df_clean.dropna(how='all')
+            
+            # Rellenar valores vacíos según tipo de columna
+            for col in df_clean.columns:
+                col_lower = col.lower()
+                
+                if 'email' in col_lower:
+                    # Eliminar filas sin email (campo crítico)
+                    df_clean = df_clean[df_clean[col].notna() & (df_clean[col] != '')]
+                elif 'nombre' in col_lower or 'name' in col_lower:
+                    # Eliminar filas sin nombre (campo crítico)
+                    df_clean = df_clean[df_clean[col].notna() & (df_clean[col] != '')]
+                elif 'edad' in col_lower or 'age' in col_lower:
+                    # Rellenar edad vacía con promedio
+                    numeric_ages = pd.to_numeric(df_clean[col], errors='coerce')
+                    mean_age = numeric_ages.mean()
+                    if not pd.isna(mean_age):
+                        df_clean[col] = numeric_ages.fillna(int(mean_age))
+                elif 'precio' in col_lower or 'price' in col_lower:
+                    # Rellenar precio vacío con 0
+                    numeric_prices = pd.to_numeric(df_clean[col], errors='coerce')
+                    df_clean[col] = numeric_prices.fillna(0.0)
+                elif 'activo' in col_lower or 'active' in col_lower:
+                    # Rellenar activo vacío con 1 (activo por defecto)
+                    numeric_active = pd.to_numeric(df_clean[col], errors='coerce')
+                    df_clean[col] = numeric_active.fillna(1)
+            
+            return df_clean.to_json(orient='records', indent=2)
         else:
             # Para CSV, limpiar valores vacíos
             df_clean = df.copy()
