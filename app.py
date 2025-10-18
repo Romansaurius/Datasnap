@@ -179,23 +179,22 @@ def procesar():
         if not result:
             return jsonify({"error": "Archivo no encontrado en la base de datos"}), 404
 
-        ruta = result['ruta']
-        temp_file = False
-
-        if result.get('drive_id_original'):
-            # Descargar desde Google Drive usando API
-            try:
-                drive_request = drive_service_to_use.files().get_media(fileId=result['drive_id_original'])
-                temp_path = os.path.join(UPLOAD_FOLDER, f"temp_{id_archivo}_{result['nombre']}")
-                with open(temp_path, 'wb') as f:
-                    f.write(execute_with_retry(drive_request))
-                ruta = temp_path
-                temp_file = True
-            except Exception as e:
-                return jsonify({"error": f"No se pudo descargar el archivo desde Google Drive: {e}"}), 500
-        else:
-            if not os.path.exists(ruta):
-                return jsonify({"error": f"No se encontró el archivo: {ruta}"}), 404
+        # SIEMPRE descargar desde Google Drive (nunca usar ruta local de Hostinger)
+        if not result.get('drive_id_original'):
+            return jsonify({"error": "Archivo no disponible en Google Drive. Debe subirse primero."}), 404
+        
+        # Descargar desde Google Drive usando API
+        try:
+            drive_request = drive_service_to_use.files().get_media(fileId=result['drive_id_original'])
+            temp_path = os.path.join(UPLOAD_FOLDER, f"temp_{id_archivo}_{result['nombre']}")
+            with open(temp_path, 'wb') as f:
+                f.write(execute_with_retry(drive_request))
+            ruta = temp_path
+            temp_file = True
+            logging.info("Archivo descargado desde Google Drive: %s", temp_path)
+        except Exception as e:
+            logging.error("Error descargando desde Google Drive: %s", e)
+            return jsonify({"error": f"No se pudo descargar el archivo desde Google Drive: {e}"}), 500
     except Exception as e:
         logging.error(f"Error de conexión BD: {e}")
         return jsonify({"error": f"Error al conectar con la base de datos: {e}"}), 500
@@ -297,7 +296,8 @@ def procesar():
             UPDATE archivos
             SET estado = 'optimizado',
                 drive_id_optimizado = %s,
-                drive_link_optimizado = %s
+                drive_link_optimizado = %s,
+                fecha_optimizacion = NOW()
             WHERE id = %s
         """, (drive_id, drive_link, id_archivo))
         conn.commit()
