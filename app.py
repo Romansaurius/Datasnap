@@ -5,6 +5,7 @@ from parsers.csv_parser import process_csv
 from parsers.txt_parser import process_txt
 from parsers.xlsx_parser import process_xlsx
 from parsers.json_parser import process_json
+from parsers.sql_parser import process_sql
 from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -208,21 +209,44 @@ def procesar():
     try:
         if extension == ".csv":
             df = process_csv(ruta, HISTORIAL_FOLDER)
+            output_extension = ".csv"
         elif extension == ".txt":
             df = process_txt(ruta, HISTORIAL_FOLDER)
+            output_extension = ".csv"
         elif extension == ".xlsx":
             df = process_xlsx(ruta, HISTORIAL_FOLDER)
+            output_extension = ".csv"
         elif extension == ".json":
             df = process_json(ruta, HISTORIAL_FOLDER)
+            output_extension = ".csv"
+        elif extension == ".sql":
+            # Para SQL, devolvemos el contenido optimizado directamente
+            optimized_sql = process_sql(ruta, HISTORIAL_FOLDER)
+            output_extension = ".sql"
+            df = None  # No hay DataFrame para SQL
         else:
             return jsonify({"error": "Formato no soportado"}), 400
-        logging.info("Procesamiento completado, filas: %d", len(df))
+        
+        if df is not None:
+            logging.info("Procesamiento completado, filas: %d", len(df))
+        else:
+            logging.info("Procesamiento SQL completado")
     except Exception as e:
         logging.error("Error al procesar: %s", e)
         return jsonify({"error": f"Error al procesar: {e}"}), 500
 
-    salida = os.path.join(PROCESSED_FOLDER, f"mejorado_{os.path.basename(ruta)}.csv")
-    df.to_csv(salida, index=False, na_rep="NaN")
+    # Guardar archivo procesado
+    base_name = os.path.splitext(os.path.basename(ruta))[0]
+    salida = os.path.join(PROCESSED_FOLDER, f"optimizado_{base_name}{output_extension}")
+    
+    if df is not None:
+        # Para archivos tabulares (CSV, XLSX, etc.)
+        df.to_csv(salida, index=False, na_rep="NaN")
+    else:
+        # Para archivos SQL
+        with open(salida, 'w', encoding='utf-8') as f:
+            f.write(optimized_sql)
+    
     logging.info("Archivo procesado guardado en: %s", salida)
 
     # Limpiar archivo temporal si se descargó
@@ -237,7 +261,14 @@ def procesar():
             "name": os.path.basename(salida),
             "parents": drive_folder
         }
-        media = MediaFileUpload(salida, mimetype="text/csv")
+        
+        # Determinar MIME type según extensión
+        if output_extension == ".sql":
+            mimetype = "text/plain"
+        else:
+            mimetype = "text/csv"
+            
+        media = MediaFileUpload(salida, mimetype=mimetype)
         uploaded = execute_with_retry(drive_service_to_use.files().create(
             body=file_metadata,
             media_body=media,
@@ -277,12 +308,18 @@ def procesar():
         logging.error("Error actualizando DB: %s", e)
         return jsonify({"error": f"No se pudo actualizar la base de datos: {e}"}), 500
 
+    # Leer el contenido del archivo para enviarlo de vuelta
+    with open(salida, 'r', encoding='utf-8') as f:
+        archivo_optimizado = f.read()
+    
     return jsonify({
         "success": True,
         "archivo_id": id_archivo,
         "ruta_local": salida,
         "drive_id": drive_id,
-        "drive_link": drive_link
+        "drive_link": drive_link,
+        "archivo_optimizado": archivo_optimizado,
+        "nombre_archivo": os.path.basename(salida)
     })
 
 @app.route('/procesar_drive', methods=['POST'])
@@ -312,12 +349,20 @@ def procesar_drive():
     try:
         if extension == ".csv":
             df = process_csv(ruta, HISTORIAL_FOLDER)
+            output_ext = ".csv"
         elif extension == ".txt":
             df = process_txt(ruta, HISTORIAL_FOLDER)
+            output_ext = ".csv"
         elif extension == ".xlsx":
             df = process_xlsx(ruta, HISTORIAL_FOLDER)
+            output_ext = ".csv"
         elif extension == ".json":
             df = process_json(ruta, HISTORIAL_FOLDER)
+            output_ext = ".csv"
+        elif extension == ".sql":
+            optimized_sql = process_sql(ruta, HISTORIAL_FOLDER)
+            df = None
+            output_ext = ".sql"
         else:
             if temp_file:
                 os.remove(ruta)
@@ -327,8 +372,14 @@ def procesar_drive():
             os.remove(ruta)
         return jsonify({"error": f"Error al procesar: {e}"}), 500
 
-    salida = os.path.join(PROCESSED_FOLDER, f"mejorado_{nombre}")
-    df.to_csv(salida, index=False, na_rep="NaN")
+    base_name = os.path.splitext(nombre)[0]
+    salida = os.path.join(PROCESSED_FOLDER, f"optimizado_{base_name}{output_ext}")
+    
+    if df is not None:
+        df.to_csv(salida, index=False, na_rep="NaN")
+    else:
+        with open(salida, 'w', encoding='utf-8') as f:
+            f.write(optimized_sql)
 
     if temp_file:
         os.remove(ruta)
@@ -336,7 +387,13 @@ def procesar_drive():
     # Upload to Drive
     try:
         file_metadata = {"name": os.path.basename(salida), "parents": [DRIVE_FOLDER_ID]}
-        media = MediaFileUpload(salida, mimetype="text/csv")
+        
+        if output_ext == ".sql":
+            mimetype = "text/plain"
+        else:
+            mimetype = "text/csv"
+            
+        media = MediaFileUpload(salida, mimetype=mimetype)
         uploaded = execute_with_retry(drive_service.files().create(body=file_metadata, media_body=media, fields="id, webViewLink"))
 
         drive_id = uploaded["id"]
