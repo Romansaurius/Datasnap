@@ -143,14 +143,21 @@ def procesar():
     try:
         data = request.get_json()
         file_id = data.get('id')
+        file_content = data.get('file_content')
+        file_name = data.get('file_name', 'archivo.csv')
         
         if not file_id:
             return jsonify({'success': False, 'error': 'ID requerido'}), 400
         
-        print(f"🤖 Procesando archivo ID: {file_id} con IA Global REAL")
+        print(f"🤖 Procesando archivo ID: {file_id}, Nombre: {file_name}")
         
-        # Datos de prueba del archivo real
-        csv_content = """nombre,email,edad,precio,activo
+        # Usar contenido del archivo si se proporciona, sino usar datos de prueba
+        if file_content:
+            csv_content = file_content
+            print(f"📄 Usando contenido del archivo recibido")
+        else:
+            # Datos de prueba como fallback
+            csv_content = """nombre,email,edad,precio,activo
 Juan Perez,juan@gmai.com,25,150.50,si
 maria garcia,maria@hotmial.com,,200,1
 Pedro López,pedro@yahoo.co,30,abc,true
@@ -161,6 +168,7 @@ Sofia Martinez,sofia@outlok.com,28,   ,activo
 Luis Fernandez,luis@gmail.com,40,500.99,no
 Ana Torres,ana@gmail.com,22,75.25,si
 Luis Fernandez,luis@gmail.com,40,500.99,no"""
+            print(f"📄 Usando datos de prueba como fallback")
         
         # 🌍 APLICAR IA GLOBAL
         optimized_df, stats = process_file_with_ai(csv_content)
