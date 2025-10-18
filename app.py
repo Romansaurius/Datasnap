@@ -320,17 +320,21 @@ class UniversalAIOptimizer:
         
         number_str = str(number).strip().lower()
         
+        # Convertir texto a números (incluyendo precios)
         text_numbers = {
             'cero': 0, 'uno': 1, 'dos': 2, 'tres': 3, 'cuatro': 4, 'cinco': 5,
             'seis': 6, 'siete': 7, 'ocho': 8, 'nueve': 9, 'diez': 10,
-            'veinte': 20, 'treinta': 30, 'treinta y dos': 32, 'cuarenta': 40, 'cincuenta': 50
+            'veinte': 20, 'treinta': 30, 'treinta y dos': 32, 'cuarenta': 40, 'cincuenta': 50,
+            'cien': 100, 'cien euros': 100, 'doscientos': 200, 'doscientos euros': 200,
+            'quince mil': 15000, 'cuarenta mil': 40000, 'veinte mil': 20000, 'treinta mil': 30000
         }
         
         if number_str in text_numbers:
             return text_numbers[number_str]
         
         try:
-            return int(float(number_str))
+            val = float(number_str)
+            return abs(val) if val < 0 else val  # Convertir negativos a positivos
         except:
             return None
     
