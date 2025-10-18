@@ -1,1 +1,1 @@
-# Optimizadores avanzados para DataSnap
+# Optimizers package - IA PERFECTA para DataSnap
