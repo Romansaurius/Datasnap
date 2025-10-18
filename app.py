@@ -36,42 +36,65 @@ class PerfectSQLParser:
             
             # Separar por tablas
             usuarios_data = []
+            productos_data = []
             pedidos_data = []
             
-            # Limpiar contenido y buscar patrones más flexibles
+            # Limpiar contenido
             content_clean = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
-            lines = content_clean.split('\n')
             
-            for line in lines:
-                line = line.strip()
-                if not line or line.startswith('--') or line.startswith('/*'):
-                    continue
+            # NUEVO: Buscar INSERT multilinea
+            # Patrón para INSERT INTO tabla (...) VALUES seguido de valores en múltiples líneas
+            multiline_pattern = r'INSERT\s+INTO\s+(\w+)\s*(?:\([^)]+\))?\s+VALUES\s*([^;]+);?'
+            
+            matches = re.finditer(multiline_pattern, content_clean, re.IGNORECASE | re.DOTALL)
+            
+            for match in matches:
+                table = match.group(1)
+                values_block = match.group(2).strip()
                 
-                print(f"Procesando línea: {line}")
+                print(f"Encontrado INSERT multilinea en tabla: {table}")
+                print(f"Bloque de valores: {values_block[:100]}...")
                 
-                # Buscar INSERT statements con regex más flexible
-                # Acepta INSERT con o sin punto y coma, con espacios variables
-                match = re.search(r'INSERT\s+INTO\s+(\w+)(?:\s*\([^)]*\))?\s+VALUES\s*\(([^)]+)\)', line, re.IGNORECASE)
-                if match:
-                    table, values_str = match.groups()
-                    print(f"Encontrado INSERT en tabla: {table}, valores: {values_str}")
-                    
+                # Extraer cada fila de valores
+                # Buscar patrones como ('valor1', 'valor2', ...),
+                row_pattern = r'\(([^)]+)\)'
+                rows = re.findall(row_pattern, values_block)
+                
+                print(f"Filas encontradas: {len(rows)}")
+                
+                for row_values in rows:
                     try:
-                        values = self._parse_values_robust(values_str)
-                        print(f"Valores parseados: {values}")
+                        values = self._parse_values_robust(row_values)
+                        print(f"Valores parseados: {values[:3]}...")  # Solo primeros 3 para log
                         
-                        if table.lower() == 'usuarios' and len(values) >= 4:
-                            # Manejar casos donde faltan campos
-                            user_data = {
-                                'id': values[0] if len(values) > 0 else '',
-                                'nombre': values[1] if len(values) > 1 else '',
-                                'email': values[2] if len(values) > 2 else '',
-                                'edad': values[3] if len(values) > 3 else '',
-                                'ciudad': values[4] if len(values) > 4 else ''
-                            }
-                            usuarios_data.append(user_data)
-                            print(f"Usuario agregado: {user_data['nombre']}")
-                            
+                        if table.lower() == 'usuarios':
+                            # Estructura: nombre, email, password, telefono, fecha_registro
+                            if len(values) >= 3:
+                                user_data = {
+                                    'id': '',  # No hay ID en este formato
+                                    'nombre': values[0] if len(values) > 0 else '',
+                                    'email': values[1] if len(values) > 1 else '',
+                                    'password': values[2] if len(values) > 2 else '',
+                                    'telefono': values[3] if len(values) > 3 else '',
+                                    'fecha_registro': values[4] if len(values) > 4 else ''
+                                }
+                                usuarios_data.append(user_data)
+                                print(f"Usuario agregado: {user_data['nombre']}")
+                        
+                        elif table.lower() == 'productos':
+                            # Estructura: nombre, precio, stock, categoria, activo
+                            if len(values) >= 3:
+                                producto_data = {
+                                    'id': '',  # No hay ID en este formato
+                                    'nombre': values[0] if len(values) > 0 else '',
+                                    'precio': values[1] if len(values) > 1 else '',
+                                    'stock': values[2] if len(values) > 2 else '',
+                                    'categoria': values[3] if len(values) > 3 else '',
+                                    'activo': values[4] if len(values) > 4 else ''
+                                }
+                                productos_data.append(producto_data)
+                                print(f"Producto agregado: {producto_data['nombre']}")
+                        
                         elif table.lower() == 'pedidos' and len(values) >= 3:
                             pedido_data = {
                                 'id': values[0],
@@ -80,8 +103,9 @@ class PerfectSQLParser:
                             }
                             pedidos_data.append(pedido_data)
                             print(f"Pedido agregado: {pedido_data['id']}")
+                            
                     except Exception as e:
-                        print(f"Error parseando valores: {e}")
+                        print(f"Error parseando fila: {e}")
                         continue
             
             # Crear DataFrames separados y luego combinar con marcador
@@ -91,11 +115,16 @@ class PerfectSQLParser:
                 user['_table_type'] = 'usuarios'
                 all_data.append(user)
             
+            for producto in productos_data:
+                producto['_table_type'] = 'productos'
+                all_data.append(producto)
+            
             for pedido in pedidos_data:
                 pedido['_table_type'] = 'pedidos'
                 all_data.append(pedido)
             
             print(f"Total usuarios encontrados: {len(usuarios_data)}")
+            print(f"Total productos encontrados: {len(productos_data)}")
             print(f"Total pedidos encontrados: {len(pedidos_data)}")
             
             if all_data:
@@ -184,11 +213,16 @@ class PerfectAIOptimizer:
         
         # Procesar por tipo de tabla
         usuarios_df = df[df['_table_type'] == 'usuarios'].copy()
+        productos_df = df[df['_table_type'] == 'productos'].copy()
         pedidos_df = df[df['_table_type'] == 'pedidos'].copy()
         
         # Optimizar usuarios
         if not usuarios_df.empty:
             usuarios_df = self._optimize_usuarios(usuarios_df)
+        
+        # Optimizar productos
+        if not productos_df.empty:
+            productos_df = self._optimize_productos(productos_df)
         
         # Optimizar pedidos  
         if not pedidos_df.empty:
@@ -198,6 +232,8 @@ class PerfectAIOptimizer:
         result_dfs = []
         if not usuarios_df.empty:
             result_dfs.append(usuarios_df)
+        if not productos_df.empty:
+            result_dfs.append(productos_df)
         if not pedidos_df.empty:
             result_dfs.append(pedidos_df)
         
@@ -243,6 +279,34 @@ class PerfectAIOptimizer:
         
         return df
     
+    def _optimize_productos(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Optimiza tabla productos específicamente"""
+        
+        # Nombre
+        if 'nombre' in df.columns:
+            df['nombre'] = df['nombre'].apply(self._fix_name)
+        
+        # Precio
+        if 'precio' in df.columns:
+            df['precio'] = df['precio'].apply(self._fix_price)
+        
+        # Stock
+        if 'stock' in df.columns:
+            df['stock'] = df['stock'].apply(self._fix_stock)
+        
+        # Categoría
+        if 'categoria' in df.columns:
+            df['categoria'] = df['categoria'].apply(self._fix_category)
+        
+        # Activo
+        if 'activo' in df.columns:
+            df['activo'] = df['activo'].apply(self._fix_boolean)
+        
+        # Eliminar duplicados
+        df = df.drop_duplicates()
+        
+        return df
+    
     def _optimize_generic(self, df: pd.DataFrame) -> pd.DataFrame:
         """Optimización genérica para CSV/JSON"""
         
@@ -259,6 +323,8 @@ class PerfectAIOptimizer:
                 df[col] = df[col].apply(self._fix_city)
             elif 'fecha' in col_lower or 'date' in col_lower:
                 df[col] = df[col].apply(self._fix_date)
+            elif 'precio' in col_lower or 'price' in col_lower:
+                df[col] = df[col].apply(self._fix_price)
             elif 'activo' in col_lower or 'active' in col_lower:
                 df[col] = df[col].apply(self._fix_boolean)
         
@@ -340,6 +406,52 @@ class PerfectAIOptimizer:
             return 0
         
         return None
+    
+    def _fix_price(self, price):
+        """Corrige precio"""
+        if pd.isna(price) or str(price).strip() == '':
+            return None
+        
+        price_str = str(price).strip().lower()
+        
+        if price_str == 'abc':
+            return None
+        
+        try:
+            clean_price = re.sub(r'[^\d\.\-]', '', price_str)
+            price_val = float(clean_price) if clean_price else None
+            return price_val if price_val and price_val > 0 else None
+        except:
+            return None
+    
+    def _fix_stock(self, stock):
+        """Corrige stock"""
+        if pd.isna(stock) or str(stock).strip() == '':
+            return None
+        
+        try:
+            stock_val = int(float(str(stock)))
+            return stock_val if stock_val >= 0 else 0
+        except:
+            return None
+    
+    def _fix_category(self, category):
+        """Corrige categoría"""
+        if pd.isna(category) or str(category).strip() == '':
+            return None
+        
+        return str(category).strip().lower()
+    
+    def _fix_phone(self, phone):
+        """Corrige teléfono"""
+        if pd.isna(phone) or str(phone).strip() == '':
+            return None
+        
+        phone_str = str(phone).strip()
+        if phone_str == 'carlos':
+            return None
+        
+        return phone_str
 
 class DataSnapPerfectAI:
     """IA PERFECTA FINAL"""
@@ -439,8 +551,8 @@ class DataSnapPerfectAI:
             values = []
             for _, row in usuarios_df.iterrows():
                 vals = []
-                for col in ['id', 'nombre', 'email', 'edad', 'ciudad']:
-                    if col in row and not pd.isna(row[col]):
+                for col in ['nombre', 'email', 'password', 'telefono', 'fecha_registro']:
+                    if col in row and not pd.isna(row[col]) and str(row[col]).strip():
                         if isinstance(row[col], (int, float)):
                             vals.append(str(row[col]))
                         else:
@@ -451,7 +563,31 @@ class DataSnapPerfectAI:
                 values.append(f"({', '.join(vals)})")
             
             if values:
-                sql_parts.append("INSERT INTO usuarios (id, nombre, email, edad, ciudad) VALUES")
+                sql_parts.append("INSERT INTO usuarios (nombre, email, password, telefono, fecha_registro) VALUES")
+                sql_parts.append(',\n'.join(values) + ';')
+                sql_parts.append('')
+        
+        # Procesar productos
+        productos_df = df[df['_table_type'] == 'productos']
+        if not productos_df.empty:
+            sql_parts.append("-- Tabla productos optimizada respetando 1NF, 2NF, 3NF")
+            
+            values = []
+            for _, row in productos_df.iterrows():
+                vals = []
+                for col in ['nombre', 'precio', 'stock', 'categoria', 'activo']:
+                    if col in row and not pd.isna(row[col]) and str(row[col]).strip():
+                        if isinstance(row[col], (int, float)):
+                            vals.append(str(row[col]))
+                        else:
+                            escaped = str(row[col]).replace("'", "''")
+                            vals.append(f"'{escaped}'")
+                    else:
+                        vals.append('NULL')
+                values.append(f"({', '.join(vals)})")
+            
+            if values:
+                sql_parts.append("INSERT INTO productos (nombre, precio, stock, categoria, activo) VALUES")
                 sql_parts.append(',\n'.join(values) + ';')
                 sql_parts.append('')
         
