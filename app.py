@@ -1,11 +1,7 @@
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 import os, json, mysql.connector, requests, time, logging
-from parsers.csv_parser import process_csv
-from parsers.txt_parser import process_txt
-from parsers.xlsx_parser import process_xlsx
-from parsers.json_parser import process_json
-from parsers.sql_parser import process_sql
+from optimizers.master_universal_processor import MasterUniversalProcessor
 from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -205,32 +201,35 @@ def procesar():
         return jsonify({"error": f"Error al conectar con la base de datos: {e}"}), 500
 
     extension = os.path.splitext(ruta)[1].lower()
-    logging.info("Procesando archivo con extensión: %s, ruta: %s", extension, ruta)
+    logging.info("Procesando archivo con IA GLOBAL UNIVERSAL: %s, ruta: %s", extension, ruta)
+    
     try:
-        if extension == ".csv":
-            df = process_csv(ruta, HISTORIAL_FOLDER)
-            output_extension = ".csv"
-        elif extension == ".txt":
-            df = process_txt(ruta, HISTORIAL_FOLDER)
-            output_extension = ".csv"
-        elif extension == ".xlsx":
-            df = process_xlsx(ruta, HISTORIAL_FOLDER)
-            output_extension = ".csv"
-        elif extension == ".json":
-            df = process_json(ruta, HISTORIAL_FOLDER)
-            output_extension = ".csv"
-        elif extension == ".sql":
-            # Para SQL, devolvemos el contenido optimizado directamente
-            optimized_sql = process_sql(ruta, HISTORIAL_FOLDER)
-            output_extension = ".sql"
-            df = None  # No hay DataFrame para SQL
-        else:
-            return jsonify({"error": "Formato no soportado"}), 400
+        # USAR PROCESADOR MAESTRO UNIVERSAL
+        master_processor = MasterUniversalProcessor()
+        processing_result = master_processor.process_any_file(ruta, HISTORIAL_FOLDER)
         
-        if df is not None:
-            logging.info("Procesamiento completado, filas: %d", len(df))
+        if not processing_result['success']:
+            error_msg = '; '.join(processing_result['errors']) if processing_result['errors'] else 'Error desconocido'
+            return jsonify({"error": f"Error procesando archivo: {error_msg}"}), 500
+        
+        processed_data = processing_result['processed_data']
+        detected_type = processing_result['file_info'].get('detected_type', 'unknown')
+        
+        # Determinar extensión de salida
+        if detected_type == 'sql':
+            output_extension = ".sql"
+            df = None
+            optimized_sql = processed_data
         else:
-            logging.info("Procesamiento SQL completado")
+            output_extension = ".csv"
+            df = processed_data if isinstance(processed_data, pd.DataFrame) else pd.DataFrame({'data': [str(processed_data)]})
+            optimized_sql = None
+        
+        logging.info("Procesamiento completado con IA Global Universal. Tipo detectado: %s", detected_type)
+        if df is not None:
+            logging.info("DataFrame resultante: %d filas, %d columnas", len(df), len(df.columns))
+        else:
+            logging.info("Contenido SQL optimizado generado")
     except Exception as e:
         logging.error("Error al procesar: %s", e)
         return jsonify({"error": f"Error al procesar: {e}"}), 500
@@ -241,11 +240,11 @@ def procesar():
     
     if df is not None:
         # Para archivos tabulares (CSV, XLSX, etc.)
-        df.to_csv(salida, index=False, na_rep="NaN")
+        df.to_csv(salida, index=False, na_rep="")
     else:
-        # Para archivos SQL
+        # Para archivos SQL u otros formatos de texto
         with open(salida, 'w', encoding='utf-8') as f:
-            f.write(optimized_sql)
+            f.write(str(optimized_sql))
     
     logging.info("Archivo procesado guardado en: %s", salida)
 
@@ -347,26 +346,27 @@ def procesar_drive():
 
     extension = os.path.splitext(nombre)[1].lower()
     try:
-        if extension == ".csv":
-            df = process_csv(ruta, HISTORIAL_FOLDER)
-            output_ext = ".csv"
-        elif extension == ".txt":
-            df = process_txt(ruta, HISTORIAL_FOLDER)
-            output_ext = ".csv"
-        elif extension == ".xlsx":
-            df = process_xlsx(ruta, HISTORIAL_FOLDER)
-            output_ext = ".csv"
-        elif extension == ".json":
-            df = process_json(ruta, HISTORIAL_FOLDER)
-            output_ext = ".csv"
-        elif extension == ".sql":
-            optimized_sql = process_sql(ruta, HISTORIAL_FOLDER)
+        # USAR PROCESADOR MAESTRO UNIVERSAL
+        master_processor = MasterUniversalProcessor()
+        processing_result = master_processor.process_any_file(ruta, HISTORIAL_FOLDER)
+        
+        if not processing_result['success']:
+            if temp_file:
+                os.remove(ruta)
+            error_msg = '; '.join(processing_result['errors']) if processing_result['errors'] else 'Error desconocido'
+            return jsonify({"error": f"Error procesando archivo: {error_msg}"}), 400
+        
+        processed_data = processing_result['processed_data']
+        detected_type = processing_result['file_info'].get('detected_type', 'unknown')
+        
+        if detected_type == 'sql':
+            optimized_sql = processed_data
             df = None
             output_ext = ".sql"
         else:
-            if temp_file:
-                os.remove(ruta)
-            return jsonify({"error": "Formato no soportado"}), 400
+            df = processed_data if isinstance(processed_data, pd.DataFrame) else pd.DataFrame({'data': [str(processed_data)]})
+            optimized_sql = None
+            output_ext = ".csv"
     except Exception as e:
         if temp_file:
             os.remove(ruta)
