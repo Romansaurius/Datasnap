@@ -295,12 +295,19 @@ def process_sql(ruta_archivo, historial_folder):
 
         optimized_dataframes = {}
         report = []
+        total_original_rows = 0
+        total_clean_rows = 0
+        total_anomalies = {}
         for table, df in dataframes.items():
             original_shape = df.shape
+            total_original_rows += original_shape[0]
             df = limpiar_dataframe(df)
             df = normalize_dataframe(df)
             df = predict_missing_values(df)
             anomalies = detect_anomalies(df)
+            total_clean_rows += df.shape[0]
+            for col, count in anomalies.items():
+                total_anomalies[f"{table}.{col}"] = count
             if not df.empty:
                 optimized_dataframes[table] = df
             report.append(f"-- Tabla {table}: {original_shape[0]} filas originales, {df.shape[0]} después de limpieza. Anomalías: {anomalies}")
@@ -315,16 +322,32 @@ def process_sql(ruta_archivo, historial_folder):
             corrected = correct_sql_syntax(sql_content)
             optimized_sql = f"DROP DATABASE IF EXISTS `{db_name}`; CREATE DATABASE `{db_name}` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;\nUSE `{db_name}`;\n" + corrected + "\n" + optimize_queries("", queries)
 
+        # Estadísticas estructuradas
+        estadisticas = {
+            "filas_originales": total_original_rows,
+            "filas_limpias": total_clean_rows,
+            "anomalias": total_anomalies,
+            "tablas_procesadas": len(optimized_dataframes) if optimized_dataframes else 0
+        }
+
         # Guardar en historial
         import os
         import shutil
         shutil.copy(ruta_archivo, os.path.join(historial_folder, os.path.basename(ruta_archivo)))
 
-        return optimized_sql
+        return optimized_sql, estadisticas
     except Exception as e:
-        # En caso de error, devolver el contenido original corregido
+        # En caso de error, devolver el contenido original corregido y estadísticas básicas
         with open(ruta_archivo, 'r', encoding='utf-8') as f:
             sql_content = f.read()
         db_name = extract_db_name(sql_content)
         corrected = correct_sql_syntax(sql_content)
-        return f"DROP DATABASE IF EXISTS `{db_name}`; CREATE DATABASE `{db_name}` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;\nUSE `{db_name}`;\n" + corrected
+        optimized_sql = f"DROP DATABASE IF EXISTS `{db_name}`; CREATE DATABASE `{db_name}` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;\nUSE `{db_name}`;\n" + corrected
+        estadisticas = {
+            "filas_originales": 0,
+            "filas_limpias": 0,
+            "anomalias": {},
+            "tablas_procesadas": 0,
+            "error": str(e)
+        }
+        return optimized_sql, estadisticas

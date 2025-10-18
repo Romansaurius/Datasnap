@@ -177,7 +177,7 @@ def procesar():
             salida = os.path.join(PROCESSED_FOLDER, f"mejorado_{os.path.basename(ruta)}.csv")
             df.to_csv(salida, index=False, na_rep="NaN")
         elif extension == ".sql":
-            optimized_sql = process_sql(ruta, HISTORIAL_FOLDER)
+            optimized_sql, estadisticas_sql = process_sql(ruta, HISTORIAL_FOLDER)
             salida = os.path.join(PROCESSED_FOLDER, f"optimizado_{os.path.basename(ruta)}")
             with open(salida, 'w', encoding='utf-8') as f:
                 f.write(optimized_sql)
@@ -229,15 +229,24 @@ def procesar():
         if extension == ".sql":
             with open(salida, 'r', encoding='utf-8') as f:
                 contenido = f.read()
+            estadisticas = estadisticas_sql
         else:
             contenido = "Archivo procesado exitosamente"
+            # Estadísticas básicas para otros formatos (puedes expandir si hay parsers que devuelvan stats)
+            estadisticas = {
+                "filas_originales": 0,  # Placeholder, ajusta según parsers
+                "filas_limpias": 0,
+                "anomalias": {},
+                "mensaje": "Procesamiento completado"
+            }
 
         return jsonify({
             "success": True,
             "drive_id": drive_id,
             "drive_link": drive_link,
             "archivo_local": salida,
-            "contenido": contenido
+            "contenido": contenido,
+            "estadisticas": estadisticas
         })
     except Exception as e:
         logging.error("Error subiendo a Drive: %s", e)
