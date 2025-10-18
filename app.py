@@ -1,38 +1,17 @@
 """
-DATASNAP IA UNIVERSAL - VERSION FINAL PARA RENDER
+DATASNAP IA UNIVERSAL - CON PANDAS EN REQUIREMENTS
 IA GLOBAL PERFECTA que optimiza CUALQUIER archivo
 """
 
-import os
-import sys
-import subprocess
 from flask import Flask, request, jsonify
+import pandas as pd
+import numpy as np
+import os
 import json
 import re
 from datetime import datetime
 import traceback
 from io import StringIO
-
-# Instalación inteligente de pandas
-def smart_install_pandas():
-    try:
-        import pandas as pd
-        import numpy as np
-        print("Pandas ya disponible")
-        return True, pd, np
-    except ImportError:
-        print("Pandas no disponible - intentando instalacion...")
-        try:
-            subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'pandas==2.0.3', 'numpy==1.24.3'])
-            import pandas as pd
-            import numpy as np
-            print("Pandas instalado exitosamente")
-            return True, pd, np
-        except Exception as e:
-            print(f"No se pudo instalar pandas: {e}")
-            return False, None, None
-
-PANDAS_AVAILABLE, pd, np = smart_install_pandas()
 
 app = Flask(__name__)
 
@@ -52,17 +31,13 @@ class DataSnapUniversalAI:
             detection = self._detect_file_type(file_content, file_name)
             print(f"Detectado: {detection['type']} (confianza: {detection['confidence']:.2f})")
             
-            # 2. PARSING INTELIGENTE
-            if PANDAS_AVAILABLE:
-                parsed_data = self._parse_with_pandas(file_content, detection)
-                print("Usando parsing con pandas")
-            else:
-                parsed_data = self._parse_manual(file_content, detection)
-                print("Usando parsing manual")
+            # 2. PARSING INTELIGENTE CON PANDAS
+            parsed_data = self._parse_with_pandas(file_content, detection)
+            print("Usando parsing avanzado con pandas")
             
-            # 3. IA GLOBAL
-            optimized_data = self._apply_ai(parsed_data)
-            print("IA aplicada exitosamente")
+            # 3. IA GLOBAL CON PANDAS
+            optimized_data = self._apply_ai_pandas(parsed_data)
+            print("IA Global aplicada con pandas")
             
             # 4. RESULTADO FINAL
             result = self._generate_result(optimized_data, detection, file_name)
@@ -104,11 +79,12 @@ class DataSnapUniversalAI:
             'extension': ext
         }
     
-    def _parse_with_pandas(self, content: str, detection: dict):
-        """Parsing con pandas"""
+    def _parse_with_pandas(self, content: str, detection: dict) -> pd.DataFrame:
+        """Parsing inteligente con pandas"""
         
         try:
             if detection['type'] == 'csv':
+                # Auto-detectar separador
                 separators = [',', ';', '\t', '|']
                 best_sep, max_cols = ',', 0
                 
@@ -121,89 +97,94 @@ class DataSnapUniversalAI:
                         continue
                 
                 df = pd.read_csv(StringIO(content), sep=best_sep)
-                return {'dataframe': df, 'type': 'pandas'}
+                return df
                 
             elif detection['type'] == 'json':
                 data = json.loads(content)
                 df = pd.DataFrame(data if isinstance(data, list) else [data])
-                return {'dataframe': df, 'type': 'pandas'}
+                return df
+            
+            elif detection['type'] == 'sql':
+                # Extraer datos de SQL
+                df = self._parse_sql_to_dataframe(content)
+                return df
             
             else:
-                return self._parse_manual(content, detection)
+                # Texto como DataFrame
+                lines = [line for line in content.split('\n') if line.strip()]
+                df = pd.DataFrame({'line': lines, 'number': range(1, len(lines) + 1)})
+                return df
                 
-        except Exception:
-            return self._parse_manual(content, detection)
+        except Exception as e:
+            print(f"Error en parsing: {e}")
+            # Fallback: crear DataFrame básico
+            lines = content.split('\n')[:50]
+            df = pd.DataFrame({'content': [line for line in lines if line.strip()]})
+            return df
     
-    def _parse_manual(self, content: str, detection: dict):
-        """Parsing manual"""
+    def _parse_sql_to_dataframe(self, sql_content: str) -> pd.DataFrame:
+        """Convierte SQL a DataFrame"""
         
         try:
-            if detection['type'] == 'csv':
-                lines = [line for line in content.strip().split('\n') if line.strip()]
-                if not lines:
-                    return {'data': [], 'type': 'manual'}
-                
-                separators = [',', ';', '\t', '|']
-                best_sep = max(separators, key=lambda s: lines[0].count(s))
-                
-                headers = [h.strip() for h in lines[0].split(best_sep)]
-                data = []
-                
-                for line in lines[1:]:
-                    values = [v.strip() for v in line.split(best_sep)]
-                    if len(values) == len(headers):
-                        data.append(dict(zip(headers, values)))
-                
-                return {'data': data, 'headers': headers, 'type': 'manual'}
-                
-            elif detection['type'] == 'json':
-                data = json.loads(content)
-                return {'data': data if isinstance(data, list) else [data], 'type': 'manual'}
+            # Buscar INSERT statements
+            insert_pattern = r'INSERT\s+INTO\s+`?(\w+)`?\s*\(([^)]+)\)\s*VALUES\s*((?:\([^)]+\)(?:\s*,\s*)*)+);?'
+            matches = re.findall(insert_pattern, sql_content, re.IGNORECASE | re.DOTALL)
             
+            all_data = []
+            
+            for match in matches:
+                table = match[0]
+                cols_str = match[1]
+                values_str = match[2]
+                
+                columns = [col.strip('` "\'') for col in cols_str.split(',')]
+                
+                # Parse values
+                val_pattern = r'\(([^)]+)\)'
+                val_matches = re.findall(val_pattern, values_str)
+                
+                for val in val_matches:
+                    row = [v.strip("' \"") for v in re.split(r",(?=(?:[^']*'[^']*')*[^']*$)", val)]
+                    if len(row) == len(columns):
+                        row_dict = dict(zip(columns, row))
+                        row_dict['_source_table'] = table
+                        all_data.append(row_dict)
+            
+            if all_data:
+                return pd.DataFrame(all_data)
             else:
-                lines = [line for line in content.split('\n') if line.strip()]
-                data = [{'line': line, 'number': i+1} for i, line in enumerate(lines)]
-                return {'data': data, 'type': 'manual'}
+                return pd.DataFrame({'sql_content': [sql_content]})
                 
         except Exception:
-            lines = content.split('\n')[:50]
-            data = [{'content': line, 'line': i+1} for i, line in enumerate(lines) if line.strip()]
-            return {'data': data, 'type': 'manual'}
+            return pd.DataFrame({'sql_content': [sql_content]})
     
-    def _apply_ai(self, parsed_data: dict):
-        """IA Global Universal"""
-        
-        if parsed_data['type'] == 'pandas' and PANDAS_AVAILABLE:
-            return self._ai_pandas(parsed_data['dataframe'])
-        else:
-            return self._ai_manual(parsed_data['data'])
-    
-    def _ai_pandas(self, df):
-        """IA con pandas"""
+    def _apply_ai_pandas(self, df: pd.DataFrame) -> dict:
+        """IA Global Universal con pandas"""
         
         original_len = len(df)
         
+        # Aplicar correcciones inteligentes por columna
         for col in df.columns:
             col_lower = col.lower()
             
             if 'email' in col_lower:
                 df[col] = df[col].apply(self._fix_email)
-            elif any(word in col_lower for word in ['nombre', 'name']):
+            elif any(word in col_lower for word in ['nombre', 'name', 'usuario', 'user']):
                 df[col] = df[col].apply(self._fix_name)
-            elif any(word in col_lower for word in ['precio', 'price']):
+            elif any(word in col_lower for word in ['precio', 'price', 'cost', 'valor']):
                 df[col] = df[col].apply(self._fix_price)
-            elif any(word in col_lower for word in ['edad', 'age']):
+            elif any(word in col_lower for word in ['edad', 'age', 'anos']):
                 df[col] = df[col].apply(self._fix_age)
-            elif any(word in col_lower for word in ['activo', 'active']):
+            elif any(word in col_lower for word in ['activo', 'active', 'enabled', 'status']):
                 df[col] = df[col].apply(self._fix_boolean)
         
+        # Eliminar filas vacías y duplicados
         df = df.dropna(how='all')
         df = df.drop_duplicates()
         df = df.reset_index(drop=True)
         
         return {
             'dataframe': df,
-            'type': 'pandas',
             'stats': {
                 'original_rows': original_len,
                 'final_rows': len(df),
@@ -211,71 +192,25 @@ class DataSnapUniversalAI:
             }
         }
     
-    def _ai_manual(self, data: list):
-        """IA manual"""
-        
-        if not data:
-            return {'data': [], 'type': 'manual', 'stats': {'original_rows': 0, 'final_rows': 0}}
-        
-        corrected_data = []
-        
-        for row in data:
-            corrected_row = {}
-            for key, value in row.items():
-                key_lower = key.lower()
-                
-                if 'email' in key_lower:
-                    corrected_row[key] = self._fix_email(value)
-                elif any(word in key_lower for word in ['nombre', 'name']):
-                    corrected_row[key] = self._fix_name(value)
-                elif any(word in key_lower for word in ['precio', 'price']):
-                    corrected_row[key] = self._fix_price(value)
-                elif any(word in key_lower for word in ['edad', 'age']):
-                    corrected_row[key] = self._fix_age(value)
-                elif any(word in key_lower for word in ['activo', 'active']):
-                    corrected_row[key] = self._fix_boolean(value)
-                else:
-                    corrected_row[key] = self._fix_general(value)
-            
-            corrected_data.append(corrected_row)
-        
-        # Eliminar duplicados
-        unique_data = []
-        seen = set()
-        
-        for row in corrected_data:
-            row_str = str(sorted(row.items()))
-            if row_str not in seen:
-                seen.add(row_str)
-                unique_data.append(row)
-        
-        return {
-            'data': unique_data,
-            'type': 'manual',
-            'stats': {
-                'original_rows': len(data),
-                'final_rows': len(unique_data),
-                'duplicates_removed': len(data) - len(unique_data)
-            }
-        }
-    
     def _fix_email(self, email):
-        """Corrige emails"""
-        if not email or str(email).strip() == '' or str(email).lower() in ['nan', 'null']:
+        """Corrige emails avanzado"""
+        if pd.isna(email) or str(email).strip() == '' or str(email).lower() in ['nan', 'null', 'none']:
             return 'usuario@gmail.com'
         
         email = str(email).lower().strip()
         
-        # Correcciones
+        # Correcciones de dominios
         corrections = {
-            'gmai.com': 'gmail.com', 'gmial.com': 'gmail.com',
-            'hotmial.com': 'hotmail.com', 'yahoo.co': 'yahoo.com',
-            'outlok.com': 'outlook.com'
+            'gmai.com': 'gmail.com', 'gmial.com': 'gmail.com', 'gmaill.com': 'gmail.com',
+            'hotmial.com': 'hotmail.com', 'hotmial.com': 'hotmail.com', 'hotmailcom': 'hotmail.com',
+            'yahoo.co': 'yahoo.com', 'yahooo.com': 'yahoo.com', 'yaho.com': 'yahoo.com',
+            'outlok.com': 'outlook.com', 'outllok.com': 'outlook.com', 'outlook.co': 'outlook.com'
         }
         
         for wrong, correct in corrections.items():
             email = email.replace(wrong, correct)
         
+        # Completar emails incompletos
         if '@' not in email:
             email += '@gmail.com'
         elif email.endswith('@'):
@@ -284,75 +219,63 @@ class DataSnapUniversalAI:
         return email
     
     def _fix_name(self, name):
-        """Corrige nombres"""
-        if not name or str(name).strip() == '' or str(name).lower() in ['nan', 'null']:
+        """Corrige nombres avanzado"""
+        if pd.isna(name) or str(name).strip() == '' or str(name).lower() in ['nan', 'null', 'none']:
             return 'Usuario'
-        return str(name).strip().title()
+        
+        name = str(name).strip().title()
+        # Normalizar espacios
+        name = re.sub(r'\s+', ' ', name)
+        return name if name else 'Usuario'
     
     def _fix_price(self, price):
-        """Corrige precios"""
-        if not price or str(price).strip() == '' or str(price).lower() in ['nan', 'null']:
-            return '100.0'
+        """Corrige precios avanzado"""
+        if pd.isna(price) or str(price).strip() == '' or str(price).lower() in ['nan', 'null', 'none']:
+            return 100.0
         
         try:
-            return str(float(str(price).strip()))
+            return float(str(price).strip())
         except:
+            # Limpiar y extraer número
             clean_price = re.sub(r'[^\d\.]', '', str(price))
             try:
-                return str(float(clean_price)) if clean_price else '100.0'
+                return float(clean_price) if clean_price else 100.0
             except:
-                return '100.0'
+                return 100.0
     
     def _fix_age(self, age):
-        """Corrige edades"""
-        if not age or str(age).strip() == '' or str(age).lower() in ['nan', 'null']:
-            return '25'
+        """Corrige edades avanzado"""
+        if pd.isna(age) or str(age).strip() == '' or str(age).lower() in ['nan', 'null', 'none']:
+            return 25
         
         try:
             age_val = int(float(str(age)))
-            return str(age_val) if 0 < age_val < 120 else '25'
+            return age_val if 0 < age_val < 120 else 25
         except:
-            return '25'
+            return 25
     
     def _fix_boolean(self, value):
-        """Corrige booleanos"""
-        if not value or str(value).strip() == '' or str(value).lower() in ['nan', 'null']:
-            return 'true'
+        """Corrige booleanos avanzado"""
+        if pd.isna(value) or str(value).strip() == '' or str(value).lower() in ['nan', 'null', 'none']:
+            return True
         
         value_str = str(value).lower().strip()
         
-        if value_str in ['si', 'yes', 'true', '1', 'activo']:
-            return 'true'
-        elif value_str in ['no', 'false', '0', 'inactivo']:
-            return 'false'
+        if value_str in ['si', 'sí', 'yes', 'true', '1', 'activo', 'active', 'on']:
+            return True
+        elif value_str in ['no', 'false', '0', 'inactivo', 'inactive', 'off']:
+            return False
         else:
-            return 'true'
-    
-    def _fix_general(self, value):
-        """Correccion general"""
-        if not value or str(value).strip() == '' or str(value).lower() in ['nan', 'null']:
-            return 'N/A'
-        return str(value).strip()
+            return True
     
     def _generate_result(self, optimized_data: dict, detection: dict, filename: str) -> dict:
         """Genera resultado final"""
         
-        if optimized_data['type'] == 'pandas' and PANDAS_AVAILABLE:
-            output_content = optimized_data['dataframe'].to_csv(index=False)
-            stats = optimized_data['stats']
-        else:
-            data = optimized_data['data']
-            if data:
-                headers = list(data[0].keys())
-                csv_lines = [','.join(headers)]
-                for row in data:
-                    values = [str(row.get(h, '')).replace(',', ';') for h in headers]
-                    csv_lines.append(','.join(values))
-                output_content = '\n'.join(csv_lines)
-            else:
-                output_content = 'sin_datos'
-            
-            stats = optimized_data['stats']
+        df = optimized_data['dataframe']
+        stats = optimized_data['stats']
+        
+        # Generar CSV optimizado
+        output_content = df.to_csv(index=False)
         
         estadisticas = {
             'filas_originales': stats['original_rows'],
@@ -362,17 +285,18 @@ class DataSnapUniversalAI:
             'confianza_deteccion': detection['confidence'],
             'optimizaciones_aplicadas': 8,
             'ia_universal_aplicada': True,
-            'pandas_disponible': PANDAS_AVAILABLE
+            'pandas_disponible': True,
+            'columnas_procesadas': len(df.columns)
         }
         
         return {
             'success': True,
-            'message': f'IA UNIVERSAL aplicada - {detection["type"].upper()} optimizado',
+            'message': f'IA UNIVERSAL aplicada - {detection["type"].upper()} optimizado perfectamente',
             'archivo_optimizado': output_content,
-            'nombre_archivo': f'optimizado_{filename}_{int(datetime.now().timestamp())}.csv',
+            'nombre_archivo': f'optimizado_ia_universal_{filename}_{int(datetime.now().timestamp())}.csv',
             'estadisticas': estadisticas,
             'tipo_original': detection['type'],
-            'ia_version': 'UNIVERSAL_AI_v2.0'
+            'ia_version': 'UNIVERSAL_PANDAS_AI_v2.0'
         }
     
     def _fallback(self, content: str, filename: str, error: str) -> dict:
@@ -380,7 +304,8 @@ class DataSnapUniversalAI:
         
         try:
             lines = [line for line in content.split('\n') if line.strip()][:50]
-            csv_output = 'line,content\n' + '\n'.join(f'{i+1},"{line.replace(",", ";")}"' for i, line in enumerate(lines))
+            df = pd.DataFrame({'line': range(1, len(lines) + 1), 'content': lines})
+            csv_output = df.to_csv(index=False)
             
             return {
                 'success': True,
@@ -397,14 +322,14 @@ universal_ai = DataSnapUniversalAI()
 
 @app.route('/procesar', methods=['POST'])
 def procesar():
-    """ENDPOINT PRINCIPAL"""
+    """ENDPOINT PRINCIPAL - IA UNIVERSAL CON PANDAS"""
     try:
         data = request.get_json()
         file_id = data.get('id', 'unknown')
         file_content = data.get('file_content', '')
         file_name = data.get('file_name', 'archivo')
         
-        print(f"PROCESANDO - ID: {file_id}, Archivo: {file_name}")
+        print(f"PROCESANDO CON PANDAS - ID: {file_id}, Archivo: {file_name}")
         
         if not file_content:
             file_content = """nombre,email,edad,precio,activo
@@ -414,7 +339,7 @@ Pedro Lopez,pedro@yahoo.co,30,abc,true
 ,ana@gmail.com,22,75.25,
 Carlos Ruiz,carlos,35,300.00,false"""
             file_name = "datos_prueba.csv"
-            print("Usando datos de prueba")
+            print("Usando datos de prueba avanzados")
         
         result = universal_ai.process_universal_file(file_content, file_name)
         
@@ -448,12 +373,15 @@ def health():
     """Health check"""
     return jsonify({
         'status': 'ok',
-        'ia_version': 'UNIVERSAL_AI_v2.0',
-        'pandas_available': PANDAS_AVAILABLE,
-        'python_version': sys.version,
+        'ia_version': 'UNIVERSAL_PANDAS_AI_v2.0',
+        'pandas_available': True,
+        'pandas_version': pd.__version__,
+        'numpy_version': np.__version__,
         'capabilities': [
             'CSV_Advanced', 'JSON_Advanced', 'SQL_Advanced', 'TXT_Advanced',
-            'Auto_Detection', 'Smart_Parsing', 'AI_Corrections', 'Duplicate_Removal'
+            'Auto_Detection', 'Smart_Parsing', 'AI_Corrections', 'Duplicate_Removal',
+            'Email_Fixing', 'Name_Normalization', 'Price_Cleaning', 'Age_Validation',
+            'Boolean_Normalization', 'Pandas_Powered'
         ],
         'stats': universal_ai.stats,
         'timestamp': datetime.now().isoformat()
@@ -461,7 +389,7 @@ def health():
 
 @app.route('/test', methods=['GET'])
 def test():
-    """Test IA"""
+    """Test completo con pandas"""
     try:
         test_data = """nombre,email,edad,precio,activo
 Juan,juan@gmai.com,25,150.50,si
@@ -472,9 +400,9 @@ Maria,maria@hotmial.com,,abc,1
         
         return jsonify({
             'success': True,
-            'message': 'IA UNIVERSAL funcionando',
+            'message': 'IA UNIVERSAL con PANDAS funcionando perfectamente',
             'test_result': result,
-            'pandas_available': PANDAS_AVAILABLE
+            'pandas_version': pd.__version__
         })
         
     except Exception as e:
@@ -482,7 +410,8 @@ Maria,maria@hotmial.com,,abc,1
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    print("DATASNAP IA UNIVERSAL v2.0 INICIADA")
-    print(f"Pandas disponible: {PANDAS_AVAILABLE}")
-    print("Capacidades: Deteccion automatica, Parsing inteligente, IA avanzada")
+    print("DATASNAP IA UNIVERSAL CON PANDAS INICIADA")
+    print(f"Pandas version: {pd.__version__}")
+    print(f"Numpy version: {np.__version__}")
+    print("Capacidades: Deteccion automatica, Parsing con pandas, IA avanzada")
     app.run(host='0.0.0.0', port=port)
