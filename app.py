@@ -32,38 +32,57 @@ class PerfectSQLParser:
         """Parsea SQL manteniendo estructura EXACTA de cada tabla"""
         try:
             print("=== PARSING SQL PERFECTO ===")
+            print(f"Contenido a parsear: {content[:200]}...")
             
             # Separar por tablas
             usuarios_data = []
             pedidos_data = []
             
-            lines = content.split('\n')
+            # Limpiar contenido y buscar patrones más flexibles
+            content_clean = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+            lines = content_clean.split('\n')
             
             for line in lines:
                 line = line.strip()
-                if not line or line.startswith('--'):
+                if not line or line.startswith('--') or line.startswith('/*'):
                     continue
                 
-                # Buscar INSERT statements
-                match = re.search(r'INSERT\s+INTO\s+(\w+)\s+VALUES\s*\(([^)]+)\)', line, re.IGNORECASE)
+                print(f"Procesando línea: {line}")
+                
+                # Buscar INSERT statements con regex más flexible
+                # Acepta INSERT con o sin punto y coma, con espacios variables
+                match = re.search(r'INSERT\s+INTO\s+(\w+)(?:\s*\([^)]*\))?\s+VALUES\s*\(([^)]+)\)', line, re.IGNORECASE)
                 if match:
                     table, values_str = match.groups()
-                    values = self._parse_values(values_str)
+                    print(f"Encontrado INSERT en tabla: {table}, valores: {values_str}")
                     
-                    if table.lower() == 'usuarios' and len(values) >= 5:
-                        usuarios_data.append({
-                            'id': values[0],
-                            'nombre': values[1], 
-                            'email': values[2],
-                            'edad': values[3],
-                            'ciudad': values[4]
-                        })
-                    elif table.lower() == 'pedidos' and len(values) >= 3:
-                        pedidos_data.append({
-                            'id': values[0],
-                            'fecha': values[1],
-                            'usuario_id': values[2]
-                        })
+                    try:
+                        values = self._parse_values_robust(values_str)
+                        print(f"Valores parseados: {values}")
+                        
+                        if table.lower() == 'usuarios' and len(values) >= 4:
+                            # Manejar casos donde faltan campos
+                            user_data = {
+                                'id': values[0] if len(values) > 0 else '',
+                                'nombre': values[1] if len(values) > 1 else '',
+                                'email': values[2] if len(values) > 2 else '',
+                                'edad': values[3] if len(values) > 3 else '',
+                                'ciudad': values[4] if len(values) > 4 else ''
+                            }
+                            usuarios_data.append(user_data)
+                            print(f"Usuario agregado: {user_data['nombre']}")
+                            
+                        elif table.lower() == 'pedidos' and len(values) >= 3:
+                            pedido_data = {
+                                'id': values[0],
+                                'fecha': values[1],
+                                'usuario_id': values[2]
+                            }
+                            pedidos_data.append(pedido_data)
+                            print(f"Pedido agregado: {pedido_data['id']}")
+                    except Exception as e:
+                        print(f"Error parseando valores: {e}")
+                        continue
             
             # Crear DataFrames separados y luego combinar con marcador
             all_data = []
@@ -76,44 +95,75 @@ class PerfectSQLParser:
                 pedido['_table_type'] = 'pedidos'
                 all_data.append(pedido)
             
+            print(f"Total usuarios encontrados: {len(usuarios_data)}")
+            print(f"Total pedidos encontrados: {len(pedidos_data)}")
+            
             if all_data:
                 df = pd.DataFrame(all_data)
                 print(f"[OK] SQL parseado: {len(df)} filas")
                 return df
             else:
-                return pd.DataFrame({'error': ['No valid data']})
+                print("[ERROR] No se encontraron datos válidos")
+                return pd.DataFrame({'error': ['No valid data found - check SQL syntax']})
                 
         except Exception as e:
             print(f"ERROR SQL: {e}")
-            return pd.DataFrame({'error': [str(e)]})
+            print(f"Traceback: {traceback.format_exc()}")
+            return pd.DataFrame({'error': [f'SQL parsing error: {str(e)}']})
     
-    def _parse_values(self, values_str: str) -> list:
-        """Parse valores correctamente"""
+    def _parse_values_robust(self, values_str: str) -> list:
+        """Parse valores con manejo robusto de errores"""
         values = []
         current = ""
         in_quotes = False
         quote_char = None
         
-        for char in values_str:
+        # Limpiar string de entrada
+        values_str = values_str.strip()
+        
+        i = 0
+        while i < len(values_str):
+            char = values_str[i]
+            
             if char in ["'", '"'] and not in_quotes:
                 in_quotes = True
                 quote_char = char
             elif char == quote_char and in_quotes:
-                in_quotes = False
-                quote_char = None
+                # Verificar si es escape o cierre real
+                if i + 1 < len(values_str) and values_str[i + 1] == quote_char:
+                    current += char  # Es escape, agregar al contenido
+                    i += 1  # Saltar el siguiente
+                else:
+                    in_quotes = False  # Es cierre real
+                    quote_char = None
             elif char == ',' and not in_quotes:
                 val = current.strip().strip("'\"")
-                values.append(val if val != 'NULL' else '')
+                # Manejar valores especiales
+                if val.upper() in ['NULL', 'NONE', '']:
+                    values.append('')
+                else:
+                    values.append(val)
                 current = ""
+                i += 1
                 continue
+            else:
+                current += char
             
-            current += char
+            i += 1
         
+        # Agregar último valor
         if current:
             val = current.strip().strip("'\"")
-            values.append(val if val != 'NULL' else '')
+            if val.upper() in ['NULL', 'NONE', '']:
+                values.append('')
+            else:
+                values.append(val)
         
         return values
+    
+    def _parse_values(self, values_str: str) -> list:
+        """Wrapper para compatibilidad"""
+        return self._parse_values_robust(values_str)
 
 class PerfectAIOptimizer:
     """Optimizador PERFECTO que respeta estructura"""
