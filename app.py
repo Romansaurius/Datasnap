@@ -1,6 +1,6 @@
 """
-DATASNAP IA UNIVERSAL - VERSION FINAL CON CORS
-IA GLOBAL PERFECTA que optimiza CUALQUIER archivo
+DATASNAP IA UNIVERSAL - VERSION FINAL CON SQL CORREGIDO
+IA GLOBAL PERFECTA que optimiza CUALQUIER archivo manteniendo formato original
 """
 
 from flask import Flask, request, jsonify
@@ -276,8 +276,13 @@ class DataSnapUniversalAI:
         df = optimized_data['dataframe']
         stats = optimized_data['stats']
         
-        # Generar CSV optimizado
-        output_content = df.to_csv(index=False)
+        # Generar salida según el tipo detectado
+        if detection['type'] == 'sql':
+            output_content = self._generate_sql_output(df)
+            extension = 'sql'
+        else:
+            output_content = df.to_csv(index=False)
+            extension = 'csv'
         
         estadisticas = {
             'filas_originales': stats['original_rows'],
@@ -295,11 +300,39 @@ class DataSnapUniversalAI:
             'success': True,
             'message': f'IA UNIVERSAL aplicada - {detection["type"].upper()} optimizado perfectamente',
             'archivo_optimizado': output_content,
-            'nombre_archivo': f'optimizado_ia_universal_{filename}_{int(datetime.now().timestamp())}.csv',
+            'nombre_archivo': f'optimizado_ia_universal_{filename}_{int(datetime.now().timestamp())}.{extension}',
             'estadisticas': estadisticas,
             'tipo_original': detection['type'],
             'ia_version': 'UNIVERSAL_PANDAS_AI_v2.0'
         }
+    
+    def _generate_sql_output(self, df: pd.DataFrame) -> str:
+        """Genera SQL optimizado desde DataFrame"""
+        
+        if '_source_table' in df.columns:
+            # Reconstruir SQL desde datos parseados
+            tables = df['_source_table'].unique()
+            sql_output = []
+            
+            for table in tables:
+                table_data = df[df['_source_table'] == table]
+                cols = [col for col in table_data.columns if col != '_source_table']
+                
+                if cols and len(table_data) > 0:
+                    sql_output.append(f"INSERT INTO {table} ({', '.join(cols)}) VALUES")
+                    
+                    values = []
+                    for _, row in table_data.iterrows():
+                        row_values = [f"'{str(row[col])}'" if pd.notna(row[col]) else 'NULL' for col in cols]
+                        values.append(f"({', '.join(row_values)})")
+                    
+                    sql_output.append(',\n'.join(values) + ';')
+                    sql_output.append('')
+            
+            return '\n'.join(sql_output)
+        else:
+            # Fallback a CSV si no hay estructura SQL
+            return df.to_csv(index=False)
     
     def _fallback(self, content: str, filename: str, error: str) -> dict:
         """Fallback inteligente"""
@@ -375,7 +408,7 @@ def health():
     """Health check"""
     return jsonify({
         'status': 'ok',
-        'ia_version': 'UNIVERSAL_PANDAS_AI_v2.0',
+        'ia_version': 'UNIVERSAL_PANDAS_AI_v2.0_SQL_FIXED',
         'pandas_available': True,
         'pandas_version': pd.__version__,
         'numpy_version': np.__version__,
@@ -383,7 +416,7 @@ def health():
             'CSV_Advanced', 'JSON_Advanced', 'SQL_Advanced', 'TXT_Advanced',
             'Auto_Detection', 'Smart_Parsing', 'AI_Corrections', 'Duplicate_Removal',
             'Email_Fixing', 'Name_Normalization', 'Price_Cleaning', 'Age_Validation',
-            'Boolean_Normalization', 'Pandas_Powered', 'CORS_Enabled'
+            'Boolean_Normalization', 'Pandas_Powered', 'CORS_Enabled', 'SQL_Format_Preserved'
         ],
         'stats': universal_ai.stats,
         'timestamp': datetime.now().isoformat()
@@ -412,8 +445,8 @@ Maria,maria@hotmial.com,,abc,1
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    print("DATASNAP IA UNIVERSAL CON PANDAS Y CORS INICIADA")
+    print("DATASNAP IA UNIVERSAL CON PANDAS Y SQL CORREGIDO INICIADA")
     print(f"Pandas version: {pd.__version__}")
     print(f"Numpy version: {np.__version__}")
-    print("Capacidades: Deteccion automatica, Parsing con pandas, IA avanzada, CORS habilitado")
+    print("Capacidades: Deteccion automatica, Parsing con pandas, IA avanzada, CORS habilitado, SQL preservado")
     app.run(host='0.0.0.0', port=port)
