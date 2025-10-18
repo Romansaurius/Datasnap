@@ -68,19 +68,85 @@ class UniversalGlobalAI:
     def process_any_data(self, data: Any) -> Any:
         """Procesa CUALQUIER tipo de datos de CUALQUIER archivo"""
         
-        # 1. DETECTAR TIPO DE DATOS
-        data_type = self._detect_data_type(data)
+        try:
+            # 1. DETECTAR TIPO DE DATOS
+            data_type = self._detect_data_type(data)
+            
+            # 2. CONVERTIR A FORMATO UNIVERSAL
+            universal_data = self._convert_to_universal_format(data, data_type)
+            
+            # 3. APLICAR IA GLOBAL
+            optimized_data = self._apply_global_ai(universal_data)
+            
+            # 4. CONVERTIR DE VUELTA AL FORMATO ORIGINAL
+            final_data = self._convert_back_to_original_format(optimized_data, data_type)
+            
+            return final_data
+            
+        except Exception as e:
+            # FALLBACK: Si falla todo, al menos devolver DataFrame básico
+            if isinstance(data, pd.DataFrame):
+                return self._apply_basic_corrections(data)
+            else:
+                # Crear DataFrame básico y aplicar correcciones
+                basic_df = pd.DataFrame({'data': [str(data)]})
+                return self._apply_basic_corrections(basic_df)
+    
+    def _apply_basic_corrections(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Aplica correcciones básicas como fallback"""
         
-        # 2. CONVERTIR A FORMATO UNIVERSAL
-        universal_data = self._convert_to_universal_format(data, data_type)
+        try:
+            # Limpieza básica
+            df = self._universal_cleaning(df)
+            
+            # Correcciones simples por columna
+            for col in df.columns:
+                col_lower = col.lower()
+                
+                if 'email' in col_lower:
+                    df[col] = self._correct_emails(df[col])
+                elif 'nombre' in col_lower or 'name' in col_lower:
+                    df[col] = self._correct_names_simple(df[col])
+                elif 'precio' in col_lower or 'price' in col_lower:
+                    df[col] = self._correct_prices_simple(df[col])
+                elif 'activo' in col_lower:
+                    df[col] = self._correct_booleans(df[col])
+            
+            return df
+            
+        except Exception:
+            # Si incluso esto falla, devolver el DataFrame original
+            return df
+    
+    def _correct_names_simple(self, series: pd.Series) -> pd.Series:
+        """Corrección simple de nombres"""
+        def fix_name(name):
+            if pd.isna(name) or str(name).lower() in ['nan', 'none', '']:
+                return 'Usuario'  # Nombre por defecto
+            
+            name = str(name).strip().title()
+            return name
         
-        # 3. APLICAR IA GLOBAL
-        optimized_data = self._apply_global_ai(universal_data)
+        return series.apply(fix_name)
+    
+    def _correct_prices_simple(self, series: pd.Series) -> pd.Series:
+        """Corrección simple de precios"""
         
-        # 4. CONVERTIR DE VUELTA AL FORMATO ORIGINAL
-        final_data = self._convert_back_to_original_format(optimized_data, data_type)
+        def fix_price(price):
+            if pd.isna(price):
+                return 100.0  # Precio por defecto
+            
+            try:
+                if isinstance(price, str):
+                    # Limpiar y convertir
+                    clean_price = re.sub(r'[^\d\.]', '', str(price))
+                    return float(clean_price) if clean_price else 100.0
+                else:
+                    return float(price)
+            except:
+                return 100.0
         
-        return final_data
+        return series.apply(fix_price)
     
     def _detect_data_type(self, data: Any) -> str:
         """Detecta automáticamente el tipo de datos"""
