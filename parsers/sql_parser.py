@@ -297,74 +297,33 @@ def optimize_queries(sql_content, queries):
     return sql_content + "\n" + "\n".join(suggestions)
 
 def process_sql(ruta_archivo, historial_folder):
-    """Procesa archivos SQL con optimización robusta"""
+    """Procesa archivos SQL con IA GLOBAL UNIVERSAL"""
     try:
         # Leer archivo SQL
         with open(ruta_archivo, 'r', encoding='utf-8') as f:
             sql_content = f.read()
         
-        # Guardar en historial primero
+        # Guardar en historial
         try:
             shutil.copy(ruta_archivo, os.path.join(historial_folder, os.path.basename(ruta_archivo)))
         except Exception:
-            pass  # No fallar si no se puede guardar historial
-        
-        # Extraer nombre de BD
-        db_name = extract_db_name(sql_content)
-        
-        # Aplicar correcciones básicas
-        corrected_sql = correct_sql_syntax(sql_content)
-        
-        # Intentar procesamiento avanzado
-        try:
-            dataframes, queries = parse_sql_to_dataframes(corrected_sql)
-            
-            if dataframes:
-                # Procesar dataframes encontrados
-                optimized_dataframes = {}
-                report = []
-                
-                for table, df in dataframes.items():
-                    try:
-                        original_shape = df.shape
-                        df_clean = limpiar_dataframe(df)
-                        df_clean = predict_missing_values(df_clean)
-                        
-                        if not df_clean.empty:
-                            optimized_dataframes[table] = df_clean
-                            report.append(f"-- Tabla {table}: {original_shape[0]} filas -> {df_clean.shape[0]} optimizadas")
-                    except Exception as e:
-                        report.append(f"-- Error procesando tabla {table}: {str(e)}")
-                
-                if optimized_dataframes:
-                    # Generar SQL optimizado
-                    optimized_sql = generate_sql_from_dataframes(optimized_dataframes, db_name)
-                    optimized_sql += "\n\n-- REPORTE DE OPTIMIZACIÓN\n" + "\n".join(report)
-                    return optimized_sql
-        
-        except Exception as e:
-            # Si falla el procesamiento avanzado, continuar con básico
             pass
         
-        # Procesamiento básico: solo correcciones de sintaxis
-        basic_optimized = f"-- SQL OPTIMIZADO POR DATASNAP\n"
-        basic_optimized += f"-- Archivo: {os.path.basename(ruta_archivo)}\n"
-        basic_optimized += f"-- Fecha: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-        basic_optimized += f"DROP DATABASE IF EXISTS `{db_name}`;\n"
-        basic_optimized += f"CREATE DATABASE `{db_name}` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\n"
-        basic_optimized += f"USE `{db_name}`;\n\n"
-        basic_optimized += corrected_sql
+        # Usar IA GLOBAL UNIVERSAL
+        from optimizers.universal_global_ai import UniversalGlobalAI
+        global_ai = UniversalGlobalAI()
+        optimized_sql = global_ai.process_any_data(sql_content)
         
-        return basic_optimized
+        return optimized_sql
         
     except Exception as e:
-        # Último recurso: devolver contenido original con header
+        # Fallback seguro
         try:
             with open(ruta_archivo, 'r', encoding='utf-8') as f:
                 original_content = f.read()
             
-            fallback_sql = f"-- SQL PROCESADO POR DATASNAP (MODO SEGURO)\n"
-            fallback_sql += f"-- Error durante optimización: {str(e)}\n\n"
+            fallback_sql = f"-- SQL PROCESADO POR DATASNAP IA GLOBAL\n"
+            fallback_sql += f"-- Error: {str(e)}\n\n"
             fallback_sql += original_content
             
             return fallback_sql
