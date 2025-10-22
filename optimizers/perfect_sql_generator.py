@@ -47,18 +47,29 @@ class PerfectSQLGenerator:
                     if not table_df.empty:
                         normalized_tables = self._normalize_table(table_df, table_name)
                         
-                        # Generar SQL para cada tabla normalizada
-                        for norm_table_name, norm_df in normalized_tables.items():
-                            if not norm_df.empty:
-                                sql_parts.extend(self._generate_table_sql(norm_table_name, norm_df))
-                                sql_parts.append("")
+                        # Verificar que normalized_tables no sea None
+                        if normalized_tables and isinstance(normalized_tables, dict):
+                            # Generar SQL para cada tabla normalizada
+                            for norm_table_name, norm_df in normalized_tables.items():
+                                if not norm_df.empty:
+                                    sql_parts.extend(self._generate_table_sql(norm_table_name, norm_df))
+                                    sql_parts.append("")
+                        else:
+                            # Fallback: generar tabla simple
+                            sql_parts.extend(self._generate_table_sql(table_name, table_df))
+                            sql_parts.append("")
             else:
                 # Tabla única - aplicar normalización completa
                 normalized_tables = self._normalize_table(df, 'data_table')
-                for norm_table_name, norm_df in normalized_tables.items():
-                    if not norm_df.empty:
-                        sql_parts.extend(self._generate_table_sql(norm_table_name, norm_df))
-                        sql_parts.append("")
+                if normalized_tables and isinstance(normalized_tables, dict):
+                    for norm_table_name, norm_df in normalized_tables.items():
+                        if not norm_df.empty:
+                            sql_parts.extend(self._generate_table_sql(norm_table_name, norm_df))
+                            sql_parts.append("")
+                else:
+                    # Fallback: generar tabla simple
+                    sql_parts.extend(self._generate_table_sql('data_table', df))
+                    sql_parts.append("")
             
             return "\n".join(sql_parts)
             
@@ -175,8 +186,13 @@ class PerfectSQLGenerator:
         if primary_key not in main_df.columns:
             main_df.insert(0, primary_key, range(1, len(main_df) + 1))
         
-        # Obtener variables locales para evitar conflictos
-        location_cols = []
+        # Variables para evitar conflictos
+        person_cols = []
+        work_cols = []
+        product_cols = []
+        commercial_cols = []
+        transaction_cols = []
+        ref_cols = []
         
         # Normalización inteligente basada en patrones de datos
         normalized_groups = self._detect_normalization_groups(main_df, primary_key)
@@ -187,10 +203,18 @@ class PerfectSQLGenerator:
                     # Crear tabla normalizada
                     normalized_table = main_df[[primary_key] + group_cols].drop_duplicates()
                     
-                    # Crear tabla si tiene sentido para normalización
-                    if len(group_cols) >= 2:  # Más agresivo en la creación de tablas
-                        related_tables[f'{table_name}_{group_name}'] = normalized_table
-                        main_df = main_df.drop(group_cols, axis=1, errors='ignore')
+                    # Crear tabla solo si tiene datos significativos y únicos
+                    if len(group_cols) >= 2 and len(normalized_table) > 1 and normalized_table[group_cols].notna().any().any():
+                        # Verificar que la tabla tenga datos útiles
+                        has_useful_data = False
+                        for col in group_cols:
+                            if normalized_table[col].notna().sum() > 0:
+                                has_useful_data = True
+                                break
+                        
+                        if has_useful_data:
+                            related_tables[f'{table_name}_{group_name}'] = normalized_table
+                            main_df = main_df.drop(group_cols, axis=1, errors='ignore')
                 except Exception as e:
                     print(f"Warning: No se pudo normalizar grupo {group_name}: {e}")
                     continue
@@ -202,45 +226,68 @@ class PerfectSQLGenerator:
         
         groups = {}
         
-        # Grupo 1: Información personal
-        person_keywords = ['nombre', 'email', 'edad', 'telefono', 'direccion', 'salario', 'activo']
-        person_cols = [col for col in df.columns if col != primary_key and 
-                      any(keyword in col.lower() for keyword in person_keywords)]
-        if len(person_cols) >= 2:
-            groups['personas'] = person_cols
+        # Detectar el tipo de tabla principal para normalizar apropiadamente
+        table_type = self._detect_table_type(df)
         
-        # Grupo 2: Información de ubicación/trabajo
-        location_keywords = ['ciudad', 'departamento', 'area', 'oficina', 'pais', 'region']
-        location_cols = [col for col in df.columns if col != primary_key and 
-                        any(keyword in col.lower() for keyword in location_keywords) and 
+        if table_type == 'usuarios':
+            # Para tabla de usuarios: separar info personal de info laboral
+            person_keywords = ['nombre', 'email', 'edad', 'telefono', 'salario', 'activo']
+            person_cols = [col for col in df.columns if col != primary_key and 
+                          any(keyword in col.lower() for keyword in person_keywords)]
+            if len(person_cols) >= 3:
+                groups['personas'] = person_cols
+            
+            work_keywords = ['departamento', 'ciudad', 'fecha_registro']
+            work_cols = [col for col in df.columns if col != primary_key and 
+                        any(keyword in col.lower() for keyword in work_keywords) and 
                         col not in person_cols]
-        if len(location_cols) >= 1:  # Más flexible
-            groups['ubicacion'] = location_cols
+            if len(work_cols) >= 2:
+                groups['trabajo'] = work_cols
         
-        # Grupo 3: Información de productos
-        product_keywords = ['precio', 'stock', 'categoria', 'descuento', 'marca', 'modelo']
-        product_cols = [col for col in df.columns if col != primary_key and 
-                       any(keyword in col.lower() for keyword in product_keywords) and 
-                       col not in person_cols and col not in location_cols]
-        if len(product_cols) >= 1:
-            groups['productos'] = product_cols
+        elif table_type == 'productos':
+            # Para tabla de productos: separar info del producto de info comercial
+            product_keywords = ['nombre', 'categoria', 'marca', 'modelo']
+            product_cols = [col for col in df.columns if col != primary_key and 
+                           any(keyword in col.lower() for keyword in product_keywords)]
+            if len(product_cols) >= 2:
+                groups['info_producto'] = product_cols
+            
+            commercial_keywords = ['precio', 'stock', 'descuento']
+            commercial_cols = [col for col in df.columns if col != primary_key and 
+                              any(keyword in col.lower() for keyword in commercial_keywords) and 
+                              col not in product_cols]
+            if len(commercial_cols) >= 2:
+                groups['info_comercial'] = commercial_cols
         
-        # Grupo 4: Transacciones/Ventas
-        sales_keywords = ['cantidad', 'precio_unitario', 'fecha_venta', 'descuento_aplicado', 'total']
-        sales_cols = [col for col in df.columns if col != primary_key and 
-                     any(keyword in col.lower() for keyword in sales_keywords) and 
-                     col not in person_cols and col not in product_cols and col not in location_cols]
-        if len(sales_cols) >= 1:
-            groups['ventas'] = sales_cols
-        
-        # Grupo 5: Referencias (IDs externos)
-        ref_keywords = ['usuario_id', 'producto_id', 'cliente_id', 'categoria_id']
-        ref_cols = [col for col in df.columns if col != primary_key and 
-                   any(keyword in col.lower() for keyword in ref_keywords)]
-        if len(ref_cols) >= 1:
-            groups['referencias'] = ref_cols
+        elif table_type == 'ventas':
+            # Para tabla de ventas: separar transacción de referencias
+            transaction_keywords = ['cantidad', 'precio_unitario', 'fecha_venta', 'descuento_aplicado']
+            transaction_cols = [col for col in df.columns if col != primary_key and 
+                               any(keyword in col.lower() for keyword in transaction_keywords)]
+            if len(transaction_cols) >= 2:
+                groups['transaccion'] = transaction_cols
+            
+            ref_keywords = ['usuario_id', 'producto_id']
+            ref_cols = [col for col in df.columns if col != primary_key and 
+                       any(keyword in col.lower() for keyword in ref_keywords) and 
+                       col not in transaction_cols]
+            if len(ref_cols) >= 2:
+                groups['referencias'] = ref_cols
         
         return groups
+    
+    def _detect_table_type(self, df: pd.DataFrame) -> str:
+        """Detecta el tipo de tabla principal"""
+        columns_str = ' '.join(df.columns).lower()
+        
+        if any(keyword in columns_str for keyword in ['nombre', 'email', 'edad', 'salario']):
+            return 'usuarios'
+        elif any(keyword in columns_str for keyword in ['precio', 'stock', 'categoria']):
+            return 'productos'
+        elif any(keyword in columns_str for keyword in ['cantidad', 'precio_unitario', 'fecha_venta']):
+            return 'ventas'
+        else:
+            return 'general'
     
     def _generate_table_sql(self, table_name: str, df: pd.DataFrame) -> List[str]:
         """Genera SQL para una tabla especifica"""
