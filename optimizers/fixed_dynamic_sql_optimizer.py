@@ -80,9 +80,9 @@ class FixedDynamicSQLOptimizer:
             create_text = '\n'.join(create_block)
             columns = self.extract_columns_from_create(create_text)
             
-            # Find INSERT statements for this specific table
+            # Find INSERT statements for this specific table in the entire content
             insert_pattern = rf'INSERT\s+INTO\s+{re.escape(table_name)}(?:\s*\([^)]+\))?\s+VALUES\s*(.*?);'
-            insert_matches = re.findall(insert_pattern, block, re.IGNORECASE | re.DOTALL)
+            insert_matches = re.findall(insert_pattern, content, re.IGNORECASE | re.DOTALL)
             
             data = []
             for values_str in insert_matches:
@@ -195,9 +195,18 @@ class FixedDynamicSQLOptimizer:
                     else:
                         cleaned_row.append(value)
                 
-                # Only keep rows that aren't completely empty or mostly NULL
-                non_null_count = sum(1 for v in cleaned_row if v is not None and str(v).strip() not in ['', 'NULL'])
-                if non_null_count >= 2:  # Al menos 2 campos válidos
+                # Only keep rows that have at least one meaningful value (not just IDs)
+                meaningful_values = []
+                for i, v in enumerate(cleaned_row):
+                    if v is not None and str(v).strip() not in ['', 'NULL']:
+                        # Skip pure ID columns for meaningful count
+                        col_name = table_info['columns'][i]['name'].lower() if i < len(table_info['columns']) else ''
+                        if not (col_name.endswith('_id') or col_name == 'id'):
+                            meaningful_values.append(v)
+                
+                # Keep row if it has at least 1 meaningful value OR 2+ total values
+                total_non_null = sum(1 for v in cleaned_row if v is not None and str(v).strip() not in ['', 'NULL'])
+                if len(meaningful_values) >= 1 or total_non_null >= 2:
                     cleaned_data.append(cleaned_row)
             
             # Remove duplicates
@@ -382,6 +391,11 @@ class FixedDynamicSQLOptimizer:
                 
                 value_rows = []
                 for idx, row in enumerate(table_info['data']):
+                    # Only skip completely empty rows
+                    non_null_values = [v for v in row if v is not None and str(v).strip() not in ['', 'NULL']]
+                    if len(non_null_values) == 0:
+                        continue  # Skip completely empty rows only
+                    
                     formatted_values = []
                     
                     # Add ID if we added it
@@ -402,7 +416,10 @@ class FixedDynamicSQLOptimizer:
                     
                     value_rows.append(f"({', '.join(formatted_values)})")
                 
-                sql_parts.append(",\n".join(value_rows) + ";")
+                if value_rows:  # Only add INSERT if there are valid rows
+                    sql_parts.append(",\n".join(value_rows) + ";")
+                else:
+                    sql_parts.append("-- No valid data to insert")
                 sql_parts.append("")
         
         return "\n".join(sql_parts)
