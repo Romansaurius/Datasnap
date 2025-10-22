@@ -211,6 +211,7 @@ class FixedDynamicSQLOptimizer:
             table_info['data'] = unique_data
         
         self.corrections_applied.append("Data cleaned and validated")
+        self.corrections_applied.append("PRIMARY KEYS and FOREIGN KEYS detected automatically")
     
     def clean_value(self, value, col_info):
         """Clean individual value based on column type and name"""
@@ -315,25 +316,48 @@ class FixedDynamicSQLOptimizer:
         sql_parts = [
             "-- Base de datos optimizada por DataSnap IA",
             "-- Aplicando normalización dinámica y corrección de datos",
+            "-- PRIMARY KEYS y FOREIGN KEYS detectadas automáticamente",
             ""
         ]
+        
+        # Detectar relaciones entre tablas
+        foreign_keys = self._detect_foreign_keys()
         
         # Generate CREATE TABLE statements - EACH TABLE SEPARATELY
         for table_name, table_info in self.tables_data.items():
             sql_parts.append(f"-- Tabla: {table_name}")
             sql_parts.append(f"CREATE TABLE {table_name} (")
             
-            # Add ID column if not exists
-            has_id = any(col['name'].lower() in ['id', f'{table_name}_id'] for col in table_info['columns'])
             col_defs = []
+            primary_key_added = False
+            primary_key_col = None
             
-            if not has_id:
-                col_defs.append("    id INT PRIMARY KEY AUTO_INCREMENT")
+            # Buscar la mejor columna para PRIMARY KEY
+            for col in table_info['columns']:
+                if self._is_primary_key(col['name'], table_name) and not primary_key_added:
+                    primary_key_col = col
+                    primary_key_added = True
+                    break
             
             # Add ONLY the columns that belong to this table
             for col in table_info['columns']:
+                col_name = col['name']
                 optimized_type = self.optimize_column_type(col, table_info['data'])
-                col_defs.append(f"    {col['name']} {optimized_type}")
+                
+                # Solo la primera columna ID será PRIMARY KEY
+                if col == primary_key_col:
+                    col_defs.append(f"    {col_name} {optimized_type} PRIMARY KEY AUTO_INCREMENT")
+                else:
+                    col_defs.append(f"    {col_name} {optimized_type}")
+            
+            # Si no hay PRIMARY KEY, añadir id auto-incremental
+            if not primary_key_added:
+                col_defs.insert(0, "    id INT PRIMARY KEY AUTO_INCREMENT")
+            
+            # Añadir FOREIGN KEYS detectadas
+            table_fks = foreign_keys.get(table_name, [])
+            for fk in table_fks:
+                col_defs.append(f"    FOREIGN KEY ({fk['column']}) REFERENCES {fk['references_table']}({fk['references_column']})")
             
             sql_parts.append(",\n".join(col_defs))
             sql_parts.append(");")
@@ -387,20 +411,22 @@ class FixedDynamicSQLOptimizer:
         col_name = col_info['name'].lower()
         
         # Email columns
-        if 'email' in col_name:
+        if 'email' in col_name or 'mail' in col_name:
             return 'VARCHAR(100) UNIQUE'
         
         # Age columns
         elif 'edad' in col_name or 'age' in col_name:
             return 'INT CHECK (edad >= 0 AND edad <= 120)'
         
-        # Money columns
-        elif any(word in col_name for word in ['salario', 'salary', 'precio', 'price']):
-            return 'DECIMAL(10,2) CHECK (precio >= 0)'
+        # Money columns - usar el nombre correcto de la columna
+        elif any(word in col_name for word in ['salario', 'salary']):
+            return f'DECIMAL(10,2) CHECK ({col_info["name"]} >= 0)'
+        elif any(word in col_name for word in ['precio', 'price', 'costo', 'cost']):
+            return f'DECIMAL(10,2) CHECK ({col_info["name"]} >= 0)'
         
         # Stock columns
         elif 'stock' in col_name or 'cantidad' in col_name:
-            return 'INT CHECK (stock >= 0)'
+            return f'INT CHECK ({col_info["name"]} >= 0)'
         
         # Date columns
         elif 'fecha' in col_name or 'date' in col_name:
@@ -414,18 +440,103 @@ class FixedDynamicSQLOptimizer:
         elif 'telefono' in col_name or 'phone' in col_name:
             return 'VARCHAR(20)'
         
-        # ID columns
+        # ID columns (PRIMARY KEY o FOREIGN KEY)
         elif col_name.endswith('_id') or col_name == 'id':
             return 'INT'
+        
+        # Text columns with specific sizes
+        elif any(word in col_name for word in ['nombre', 'name', 'titulo', 'title']):
+            return 'VARCHAR(100)'
+        elif any(word in col_name for word in ['descripcion', 'description', 'observaciones', 'notas']):
+            return 'TEXT'
+        elif any(word in col_name for word in ['codigo', 'code']):
+            return 'VARCHAR(50)'
+        elif any(word in col_name for word in ['direccion', 'address']):
+            return 'VARCHAR(200)'
         
         # Default text columns
         else:
             return 'VARCHAR(100)'
     
+    def _is_primary_key(self, col_name: str, table_name: str) -> bool:
+        """Detecta si una columna es PRIMARY KEY"""
+        col_lower = col_name.lower()
+        
+        # Patrones comunes de PRIMARY KEY
+        pk_patterns = [
+            'id',
+            f'{table_name}_id',
+            f'{table_name[:-1]}_id' if table_name.endswith('s') else f'{table_name}_id',
+            'codigo',
+            'clave'
+        ]
+        
+        return col_lower in pk_patterns
+    
+    def _detect_foreign_keys(self) -> Dict[str, List[Dict]]:
+        """Detecta FOREIGN KEYS automáticamente"""
+        foreign_keys = {}
+        
+        # Obtener todas las tablas y sus posibles PKs
+        table_pks = {}
+        for table_name in self.tables_data.keys():
+            for col in self.tables_data[table_name]['columns']:
+                if self._is_primary_key(col['name'], table_name):
+                    table_pks[table_name] = col['name']
+                    break
+            # Si no hay PK explícita, asumir 'id'
+            if table_name not in table_pks:
+                table_pks[table_name] = 'id'
+        
+        # Detectar FKs por patrones de nombres
+        for table_name, table_info in self.tables_data.items():
+            fks = []
+            
+            for col in table_info['columns']:
+                col_name = col['name'].lower()
+                
+                # Buscar patrones de FK
+                for ref_table, ref_pk in table_pks.items():
+                    if ref_table != table_name:
+                        # Patrones comunes de FK
+                        fk_patterns = [
+                            f'{ref_table}_id',
+                            f'{ref_table[:-1]}_id' if ref_table.endswith('s') else f'{ref_table}_id',
+                            f'id_{ref_table}',
+                            f'codigo_{ref_table}'
+                        ]
+                        
+                        # También buscar patrones específicos del dominio médico
+                        if ref_table == 'pacientes' and 'paciente' in col_name:
+                            fk_patterns.append('paciente_id')
+                        elif ref_table == 'medicos' and ('doctor' in col_name or 'medico' in col_name):
+                            fk_patterns.extend(['doctor_id', 'medico_id'])
+                        elif ref_table == 'hospitales' and 'hospital' in col_name:
+                            fk_patterns.append('hospital_id')
+                        elif ref_table == 'citas_medicas' and 'cita' in col_name:
+                            fk_patterns.append('cita_id')
+                        
+                        if col_name in fk_patterns:
+                            fks.append({
+                                'column': col['name'],
+                                'references_table': ref_table,
+                                'references_column': ref_pk
+                            })
+            
+            if fks:
+                foreign_keys[table_name] = fks
+        
+        return foreign_keys
+    
     def get_optimization_summary(self) -> str:
         """Get summary of optimizations applied"""
+        foreign_keys = self._detect_foreign_keys()
+        total_fks = sum(len(fks) for fks in foreign_keys.values())
+        
         summary = f"SQL Optimization Summary:\n"
         summary += f"- Tables processed: {len(self.tables_data)}\n"
+        summary += f"- PRIMARY KEYS detected: {len(self.tables_data)}\n"
+        summary += f"- FOREIGN KEYS detected: {total_fks}\n"
         summary += f"- Corrections applied:\n"
         
         for correction in self.corrections_applied:
