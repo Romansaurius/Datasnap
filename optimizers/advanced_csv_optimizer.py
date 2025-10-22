@@ -45,7 +45,7 @@ class AdvancedCSVOptimizer:
             # 7. Normalize column names
             df = self.normalize_column_names(df)
             
-            return df.to_csv(index=False)
+            return df.to_csv(index=False, encoding='utf-8')
             
         except Exception as e:
             self.corrections_applied.append(f"Error during optimization: {e}")
@@ -174,9 +174,9 @@ class AdvancedCSVOptimizer:
         series = series.str.replace('outlok.com', 'outlook.com', regex=False)
         series = series.str.replace('gmial.com', 'gmail.com', regex=False)
         
-        # Remove invalid emails
-        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-        series = series.where(series.str.match(email_pattern, na=False), np.nan)
+        # Keep emails that look reasonable (don't be too strict)
+        email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+        series = series.where(series.str.contains(email_pattern, na=False), np.nan)
         
         return series
     
@@ -190,8 +190,8 @@ class AdvancedCSVOptimizer:
         # Clean phone format
         series = series.str.replace(r'[^\d+\-\s()]', '', regex=True)
         
-        # Remove phones that are too long or too short
-        series = series.where(series.str.len().between(7, 20), np.nan)
+        # Keep phones that have reasonable length
+        series = series.where(series.str.len().between(5, 25), series)
         
         return series
     
@@ -274,8 +274,13 @@ class AdvancedCSVOptimizer:
         # Remove empty names
         series = series.replace(['', '0', '1', '2', '3', '4', '5'], np.nan)
         
-        # Proper case for names
-        series = series.str.title()
+        # Handle special characters properly
+        try:
+            # Proper case for names (only for ASCII characters)
+            series = series.apply(lambda x: x.title() if x.isascii() else x if pd.notna(x) else x)
+        except:
+            # Fallback if title() fails
+            pass
         
         # Fix common name issues
         series = series.str.replace(r'\s+', ' ', regex=True)  # Multiple spaces
@@ -289,12 +294,14 @@ class AdvancedCSVOptimizer:
         # Remove rows where all values are null
         df = df.dropna(how='all')
         
-        # Fix inconsistent city names
-        if 'ciudad' in df.columns or 'city' in df.columns:
-            city_col = 'ciudad' if 'ciudad' in df.columns else 'city'
-            df[city_col] = df[city_col].str.replace('Madrd', 'Madrid', regex=False)
-            df[city_col] = df[city_col].str.replace('Barcelon', 'Barcelona', regex=False)
-            df[city_col] = df[city_col].str.replace('Valenci', 'Valencia', regex=False)
+        # Fix inconsistent city names using smart correction
+        for col in df.columns:
+            if 'ciudad' in col.lower() or 'city' in col.lower():
+                try:
+                    df[col] = df[col].apply(self._smart_city_correction)
+                except:
+                    # Skip if there are encoding issues
+                    pass
         
         self.corrections_applied.append("Values validated and corrected")
         return df
@@ -307,8 +314,8 @@ class AdvancedCSVOptimizer:
         # Remove duplicates
         df = df.drop_duplicates()
         
-        # Remove rows with too many null values (more than 70% null)
-        threshold = len(df.columns) * 0.3
+        # Remove rows with too many null values (more than 90% null)
+        threshold = max(1, len(df.columns) * 0.1)  # Keep rows with at least 10% valid data
         df = df.dropna(thresh=threshold)
         
         final_rows = len(df)
@@ -333,6 +340,49 @@ class AdvancedCSVOptimizer:
         
         self.corrections_applied.append("Column names normalized")
         return df
+    
+    def _smart_city_correction(self, city):
+        """Smart city name correction using similarity matching"""
+        if pd.isna(city) or str(city).strip() == '':
+            return city
+        
+        city_str = str(city).strip().lower()
+        
+        # Common cities database for correction
+        common_cities = [
+            'madrid', 'barcelona', 'valencia', 'sevilla', 'bilbao', 'zaragoza',
+            'málaga', 'murcia', 'palma', 'córdoba', 'valladolid', 'vigo',
+            'paris', 'london', 'berlin', 'rome', 'amsterdam', 'vienna',
+            'moscow', 'beijing', 'tokyo', 'new york', 'los angeles', 'chicago',
+            'são paulo', 'mexico city', 'cairo', 'mumbai', 'oslo'
+        ]
+        
+        # If city is very short or truncated, try to find best match
+        if len(city_str) >= 4 and len(city_str) <= 12:
+            best_match = self._find_best_city_match(city_str, common_cities)
+            if best_match:
+                return best_match.title()
+        
+        return str(city).title()
+    
+    def _find_best_city_match(self, city: str, cities: list) -> str:
+        """Find best matching city using similarity"""
+        best_ratio = 0
+        best_match = None
+        
+        for candidate in cities:
+            # Calculate similarity ratio
+            ratio = self._similarity_ratio(city, candidate)
+            if ratio > best_ratio and ratio >= 0.7:  # 70% similarity threshold
+                best_ratio = ratio
+                best_match = candidate
+        
+        return best_match
+    
+    def _similarity_ratio(self, str1: str, str2: str) -> float:
+        """Calculate similarity ratio between two strings"""
+        from difflib import SequenceMatcher
+        return SequenceMatcher(None, str1, str2).ratio()
     
     def get_optimization_summary(self) -> str:
         """Get summary of optimizations applied"""
