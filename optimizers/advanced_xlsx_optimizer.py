@@ -57,22 +57,31 @@ class AdvancedXLSXOptimizer:
             from io import BytesIO
             import base64
             
-            # Fix column names to avoid Excel corruption
-            df = self._fix_column_names_for_excel(df)
+            # Clean and prepare data for Excel
+            df_clean = self._prepare_data_for_excel(df)
             
             # Create Excel file in memory
             excel_buffer = BytesIO()
-            with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                df.to_excel(writer, index=False, sheet_name='Datos_Optimizados')
-            
-            # Get binary content
-            excel_buffer.seek(0)
-            excel_binary = excel_buffer.getvalue()
-            
-            # Convert to base64 for transport
-            excel_base64 = base64.b64encode(excel_binary).decode('utf-8')
-            
-            return excel_base64
+            try:
+                with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                    df_clean.to_excel(writer, index=False, sheet_name='Datos')
+                
+                # Get binary content
+                excel_buffer.seek(0)
+                excel_binary = excel_buffer.getvalue()
+                
+                # Verify the Excel file is valid
+                if len(excel_binary) > 1000:  # Minimum size check
+                    # Convert to base64 for transport
+                    excel_base64 = base64.b64encode(excel_binary).decode('utf-8')
+                    return excel_base64
+                else:
+                    raise Exception("Generated Excel file too small")
+                
+            except Exception as excel_error:
+                print(f"[XLSX ERROR] Excel generation failed: {excel_error}")
+                # Fallback: return as CSV
+                return df_clean.to_csv(index=False, encoding='utf-8')
             
         except Exception as e:
             print(f"[XLSX ERROR] Exception during optimization: {str(e)}")
@@ -647,49 +656,51 @@ class AdvancedXLSXOptimizer:
         self.corrections_applied.append("Column names normalized")
         return df
     
-    def _fix_column_names_for_excel(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Fix column names to prevent Excel corruption"""
+    def _prepare_data_for_excel(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Prepare data for Excel export - clean and simple"""
         
-        # Create proper column names
+        # Create a clean copy
+        df_clean = df.copy()
+        
+        # Fix column names - simple and robust
         new_columns = []
-        for i, col in enumerate(df.columns):
+        for i, col in enumerate(df_clean.columns):
             if pd.isna(col) or str(col).strip() == '' or 'Unnamed' in str(col):
-                # Generate meaningful column name based on content
-                sample_data = df.iloc[:, i].dropna().astype(str).head(3).tolist()
-                
-                # Try to guess column type from data
-                if any('@' in str(val) for val in sample_data):
+                # Simple column naming
+                if i == 0:
+                    new_columns.append('nombre')
+                elif i == 1:
                     new_columns.append('email')
-                elif any(any(char.isalpha() for char in str(val)) for val in sample_data):
-                    if i == 0:  # First column is usually name
-                        new_columns.append('nombre')
-                    else:
-                        new_columns.append(f'columna_{i+1}')
                 else:
-                    new_columns.append(f'valor_{i+1}')
+                    new_columns.append(f'columna_{i+1}')
             else:
-                # Clean existing column name
-                clean_name = str(col).strip().replace(' ', '_').replace('/', '_')
-                clean_name = re.sub(r'[^\w_]', '', clean_name)
+                # Clean column name
+                clean_name = str(col).strip()[:30]  # Limit length
+                clean_name = re.sub(r'[^\w\s]', '', clean_name)  # Remove special chars
+                clean_name = clean_name.replace(' ', '_')
                 if not clean_name:
-                    clean_name = f'columna_{i+1}'
+                    clean_name = f'col_{i+1}'
                 new_columns.append(clean_name)
         
-        # Ensure unique column names
-        final_columns = []
-        for col in new_columns:
-            if col in final_columns:
-                counter = 1
-                while f"{col}_{counter}" in final_columns:
-                    counter += 1
-                final_columns.append(f"{col}_{counter}")
-            else:
-                final_columns.append(col)
+        df_clean.columns = new_columns
         
-        df.columns = final_columns
-        self.corrections_applied.append("Column names fixed for Excel compatibility")
+        # Clean data values
+        for col in df_clean.columns:
+            # Convert problematic values to strings
+            df_clean[col] = df_clean[col].astype(str)
+            # Replace 'nan' strings with empty strings
+            df_clean[col] = df_clean[col].replace('nan', '')
+            # Limit string length to prevent Excel issues
+            df_clean[col] = df_clean[col].str[:255]
         
-        return df
+        # Remove completely empty rows
+        df_clean = df_clean.replace('', np.nan)
+        df_clean = df_clean.dropna(how='all')
+        df_clean = df_clean.fillna('')  # Fill remaining NaN with empty strings
+        
+        self.corrections_applied.append("Data prepared for Excel compatibility")
+        
+        return df_clean
     
     def get_optimization_summary(self) -> str:
         """Get summary of optimizations applied"""
