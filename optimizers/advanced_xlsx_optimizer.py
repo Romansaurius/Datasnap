@@ -57,10 +57,13 @@ class AdvancedXLSXOptimizer:
             from io import BytesIO
             import base64
             
+            # Fix column names to avoid Excel corruption
+            df = self._fix_column_names_for_excel(df)
+            
             # Create Excel file in memory
             excel_buffer = BytesIO()
             with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                df.to_excel(writer, index=False, sheet_name='Optimized')
+                df.to_excel(writer, index=False, sheet_name='Datos_Optimizados')
             
             # Get binary content
             excel_buffer.seek(0)
@@ -642,6 +645,50 @@ class AdvancedXLSXOptimizer:
         df.columns = df.columns.str.strip('_')
         
         self.corrections_applied.append("Column names normalized")
+        return df
+    
+    def _fix_column_names_for_excel(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Fix column names to prevent Excel corruption"""
+        
+        # Create proper column names
+        new_columns = []
+        for i, col in enumerate(df.columns):
+            if pd.isna(col) or str(col).strip() == '' or 'Unnamed' in str(col):
+                # Generate meaningful column name based on content
+                sample_data = df.iloc[:, i].dropna().astype(str).head(3).tolist()
+                
+                # Try to guess column type from data
+                if any('@' in str(val) for val in sample_data):
+                    new_columns.append('email')
+                elif any(any(char.isalpha() for char in str(val)) for val in sample_data):
+                    if i == 0:  # First column is usually name
+                        new_columns.append('nombre')
+                    else:
+                        new_columns.append(f'columna_{i+1}')
+                else:
+                    new_columns.append(f'valor_{i+1}')
+            else:
+                # Clean existing column name
+                clean_name = str(col).strip().replace(' ', '_').replace('/', '_')
+                clean_name = re.sub(r'[^\w_]', '', clean_name)
+                if not clean_name:
+                    clean_name = f'columna_{i+1}'
+                new_columns.append(clean_name)
+        
+        # Ensure unique column names
+        final_columns = []
+        for col in new_columns:
+            if col in final_columns:
+                counter = 1
+                while f"{col}_{counter}" in final_columns:
+                    counter += 1
+                final_columns.append(f"{col}_{counter}")
+            else:
+                final_columns.append(col)
+        
+        df.columns = final_columns
+        self.corrections_applied.append("Column names fixed for Excel compatibility")
+        
         return df
     
     def get_optimization_summary(self) -> str:
