@@ -30,10 +30,10 @@ class UniversalSQLParser:
         try:
             print("=== PARSING SQL SIMPLE ===")
             
-            # Usar el parser final
-            from optimizers.final_sql_parser import FinalSQLParser
-            final_parser = FinalSQLParser()
-            return final_parser.parse_sql_content(content)
+            # Usar el parser perfecto final
+            from optimizers.perfect_final_parser import PerfectFinalParser
+            perfect_parser = PerfectFinalParser()
+            return perfect_parser.parse_sql_content(content)
             
         except Exception as e:
             print(f"Error en parser simple, usando fallback: {e}")
@@ -94,6 +94,9 @@ class UniversalAIOptimizer:
             return df
     
     def _optimize_table_universal(self, df: pd.DataFrame, table_name: str) -> pd.DataFrame:
+        # Crear copia para evitar SettingWithCopyWarning
+        df = df.copy()
+        
         for col in df.columns:
             if col == '_table_type':
                 continue
@@ -102,25 +105,25 @@ class UniversalAIOptimizer:
             sample_values = df[col].dropna().astype(str).str.lower()
             
             if self._is_email_column(col_lower, sample_values):
-                df[col] = df[col].apply(self._fix_email)
+                df[col] = df[col].apply(self._fix_email).astype('object')
             elif self._is_name_column(col_lower, sample_values):
-                df[col] = df[col].apply(self._fix_name)
+                df[col] = df[col].apply(self._fix_name).astype('object')
             elif self._is_phone_column(col_lower, sample_values):
-                df[col] = df[col].apply(self._fix_phone)
+                df[col] = df[col].apply(self._fix_phone).astype('object')
             elif self._is_date_column(col_lower, sample_values):
-                df[col] = df[col].apply(self._fix_date)
+                df[col] = df[col].apply(self._fix_date).astype('object')
             elif self._is_price_column(col_lower, sample_values):
-                df[col] = df[col].apply(self._fix_price)
+                df[col] = pd.to_numeric(df[col].apply(self._fix_price), errors='coerce')
             elif 'stock' in col_lower:
-                df[col] = df[col].apply(self._fix_stock)
+                df[col] = pd.to_numeric(df[col].apply(self._fix_stock), errors='coerce')
             elif self._is_number_column(col_lower, sample_values):
-                df[col] = df[col].apply(self._fix_number)
+                df[col] = pd.to_numeric(df[col].apply(self._fix_number), errors='coerce')
             elif self._is_boolean_column(col_lower, sample_values):
-                df[col] = df[col].apply(self._fix_boolean)
+                df[col] = df[col].apply(self._fix_boolean).astype('object')
             elif self._is_category_column(col_lower, sample_values):
-                df[col] = df[col].apply(self._fix_category)
+                df[col] = df[col].apply(self._fix_category).astype('object')
             else:
-                df[col] = df[col].apply(self._fix_text_general)
+                df[col] = df[col].apply(self._fix_text_general).astype('object')
         
         # Eliminar duplicados por nombre si existe
         name_columns = [col for col in df.columns if 'nombre' in col.lower() and col != '_table_type']
@@ -357,23 +360,26 @@ class UniversalAIOptimizer:
         return text
     
     def _optimize_any_data(self, df: pd.DataFrame) -> pd.DataFrame:
+        # Crear copia para evitar SettingWithCopyWarning
+        df = df.copy()
+        
         for col in df.columns:
             sample_values = df[col].dropna().astype(str).str.lower()
             
             if self._is_email_column(col.lower(), sample_values):
-                df[col] = df[col].apply(self._fix_email)
+                df[col] = df[col].apply(self._fix_email).astype('object')
             elif self._is_name_column(col.lower(), sample_values):
-                df[col] = df[col].apply(self._fix_name)
+                df[col] = df[col].apply(self._fix_name).astype('object')
             elif self._is_phone_column(col.lower(), sample_values):
-                df[col] = df[col].apply(self._fix_phone)
+                df[col] = df[col].apply(self._fix_phone).astype('object')
             elif self._is_date_column(col.lower(), sample_values):
-                df[col] = df[col].apply(self._fix_date)
+                df[col] = df[col].apply(self._fix_date).astype('object')
             elif self._is_price_column(col.lower(), sample_values):
-                df[col] = df[col].apply(self._fix_price)
+                df[col] = pd.to_numeric(df[col].apply(self._fix_price), errors='coerce')
             elif self._is_boolean_column(col.lower(), sample_values):
-                df[col] = df[col].apply(self._fix_boolean)
+                df[col] = df[col].apply(self._fix_boolean).astype('object')
             else:
-                df[col] = df[col].apply(self._fix_text_general)
+                df[col] = df[col].apply(self._fix_text_general).astype('object')
         
         return df.drop_duplicates()
 
@@ -404,8 +410,18 @@ class DataSnapUniversalAI:
                 # Aplicar correcciones para TXT
                 df = self._apply_txt_corrections(df)
             
-            # Usar solo el optimizador básico para evitar mezclar columnas
-            optimized_df = self.optimizer.optimize_universal(df)
+            # Usar optimizador básico SIN mezclar columnas
+            if '_table_type' in df.columns:
+                # Procesar cada tabla por separado
+                optimized_tables = []
+                for table_type in df['_table_type'].unique():
+                    table_df = df[df['_table_type'] == table_type]
+                    # Solo optimizar datos de la misma tabla
+                    optimized_table = self.optimizer._optimize_any_data(table_df)
+                    optimized_tables.append(optimized_table)
+                optimized_df = pd.concat(optimized_tables, ignore_index=True)
+            else:
+                optimized_df = self.optimizer._optimize_any_data(df)
             
             output = self._generate_universal_output(optimized_df, file_type)
             
@@ -522,13 +538,12 @@ class DataSnapUniversalAI:
     
     def _generate_universal_sql(self, df: pd.DataFrame) -> str:
         try:
-            # Usar el generador SQL perfecto
+            # Usar el generador SQL perfecto CON normalización
             from optimizers.perfect_sql_generator import PerfectSQLGenerator
             perfect_generator = PerfectSQLGenerator()
             
-            # Aplicar normalización si está habilitada
-            enable_normalization = hasattr(self, 'enable_normalization') and self.enable_normalization
-            return perfect_generator.generate_perfect_sql(df, enable_normalization)
+            # Habilitar normalización completa para aplicación perfecta
+            return perfect_generator.generate_perfect_sql(df, enable_normalization=True)
             
         except Exception as e:
             print(f"Error en generador perfecto, usando fallback: {e}")
