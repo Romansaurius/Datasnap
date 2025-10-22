@@ -507,48 +507,76 @@ class AdvancedCSVOptimizer:
         """Convert various date formats to YYYY-MM-DD with intelligent validation"""
         if pd.isna(date_str) or str(date_str).strip() == '':
             return np.nan
-        
+
         date_str = str(date_str).strip()
-        
+
         # Handle invalid date indicators
         if date_str.lower() in ['nan', 'invalid_date', 'never', 'null', 'none']:
             return np.nan
-        
+
         try:
-            # Convert DD/MM/YYYY to YYYY-MM-DD
-            if re.match(r'^\d{1,2}/\d{1,2}/\d{4}$', date_str):
-                parts = date_str.split('/')
+            # Convert DD-MM-YYYY to YYYY-MM-DD (formato 20-05-2024)
+            if re.match(r'^\d{1,2}-\d{1,2}-\d{4}$', date_str):
+                parts = date_str.split('-')
                 if len(parts) == 3:
                     day, month, year = map(int, parts)
-                    
+
                     # Validate and fix invalid dates
                     if month > 12:
                         month = 12
                     if month < 1:
                         month = 1
-                    
+
                     # Fix impossible days
                     if day > 31:
                         day = 31
                     if day < 1:
                         day = 1
-                    
+
                     # Handle February 30/31
                     if month == 2 and day > 29:
                         day = 28
-                    
+
                     # Handle months with 30 days
                     if month in [4, 6, 9, 11] and day > 30:
                         day = 30
-                    
+
                     return f"{year}-{month:02d}-{day:02d}"
-            
+
+            # Convert DD/MM/YYYY to YYYY-MM-DD
+            if re.match(r'^\d{1,2}/\d{1,2}/\d{4}$', date_str):
+                parts = date_str.split('/')
+                if len(parts) == 3:
+                    day, month, year = map(int, parts)
+
+                    # Validate and fix invalid dates
+                    if month > 12:
+                        month = 12
+                    if month < 1:
+                        month = 1
+
+                    # Fix impossible days
+                    if day > 31:
+                        day = 31
+                    if day < 1:
+                        day = 1
+
+                    # Handle February 30/31
+                    if month == 2 and day > 29:
+                        day = 28
+
+                    # Handle months with 30 days
+                    if month in [4, 6, 9, 11] and day > 30:
+                        day = 30
+
+                    return f"{year}-{month:02d}-{day:02d}"
+
             # Already in YYYY-MM-DD format - validate
             elif re.match(r'^\d{4}-\d{1,2}-\d{1,2}$', date_str):
                 parts = date_str.split('-')
                 if len(parts) == 3:
                     year, month, day = map(int, parts)
-                    
+
                     # Validate and fix
                     if month > 12:
                         month = 12
@@ -558,27 +586,27 @@ class AdvancedCSVOptimizer:
                         day = 31
                     if day < 1:
                         day = 1
-                    
+
                     # Handle February
                     if month == 2 and day > 29:
                         day = 28
-                    
+
                     # Handle months with 30 days
                     if month in [4, 6, 9, 11] and day > 30:
                         day = 30
-                    
+
                     return f"{year}-{month:02d}-{day:02d}"
-            
+
             # Try to parse with dateutil as fallback
             try:
                 parsed_date = parser.parse(date_str, dayfirst=True)
                 return parsed_date.strftime('%Y-%m-%d')
             except:
                 return np.nan
-                
+
         except (ValueError, TypeError):
             return np.nan
-        
+
         return np.nan
     
     def _smart_name_correction(self, name):
@@ -703,4 +731,5 @@ class AdvancedCSVOptimizer:
             summary += f"  + {correction}\n"
         
         return summary
+
 
