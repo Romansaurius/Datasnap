@@ -36,10 +36,15 @@ class UniversalSQLParser:
         try:
             print("=== PARSING SQL SIMPLE ===")
             
-            # Usar el parser perfecto final
-            from optimizers.perfect_final_parser import PerfectFinalParser
-            perfect_parser = PerfectFinalParser()
-            return perfect_parser.parse_sql_content(content)
+            # Usar el parser dinámico CORREGIDO
+            from optimizers.fixed_dynamic_sql_optimizer import FixedDynamicSQLOptimizer
+            fixed_optimizer = FixedDynamicSQLOptimizer()
+            result = fixed_optimizer.optimize_sql(content)
+            
+            # Convertir resultado SQL a DataFrame para compatibilidad
+            lines = result.split('\n')
+            data = [{'optimized_sql': line} for line in lines if line.strip()]
+            return pd.DataFrame(data)
             
         except Exception as e:
             print(f"Error en parser simple, usando fallback: {e}")
@@ -351,11 +356,13 @@ class UniversalAIOptimizer:
         
         try:
             val = float(number_str)
-            # Corregir edades negativas o imposibles
+            # Corregir valores negativos o extremos
             if val < 0:
-                return abs(val) if abs(val) <= 120 else 30  # Edad promedio si es muy alta
-            elif val > 120:
-                return 30  # Edad promedio para casos extremos
+                return abs(val) if abs(val) <= 120 else 30
+            elif val > 120 and val < 1000:  # Probablemente edad
+                return 30
+            elif val > 999999:  # Valor extremo
+                return 50000 if val > 100000 else val  # Asumir salario si es muy alto
             return val
         except:
             return None
@@ -528,29 +535,20 @@ class DataSnapUniversalAI:
             if file_type == 'sql':
                 df = self.sql_parser.parse(content)
             elif file_type == 'csv':
+                # Usar el optimizador CSV avanzado directamente
+                from optimizers.advanced_csv_optimizer import AdvancedCSVOptimizer
+                csv_optimizer = AdvancedCSVOptimizer()
+                optimized_csv = csv_optimizer.optimize_csv(content)
+                
+                # Convertir resultado a DataFrame para compatibilidad
                 try:
-                    df = pd.read_csv(StringIO(content))
-                except Exception as e:
-                    # Intentar parsing robusto
+                    df = pd.read_csv(StringIO(optimized_csv))
+                except:
+                    # Fallback si hay error
                     try:
-                        df = pd.read_csv(StringIO(content), sep=',', on_bad_lines='skip')
+                        df = pd.read_csv(StringIO(content))
                     except:
-                        # Fallback: leer línea por línea
-                        lines = content.strip().split('\n')
-                        if len(lines) > 1:
-                            headers = lines[0].split(',')
-                            data = []
-                            for line in lines[1:]:
-                                row = line.split(',')
-                                # Ajustar longitud de fila a headers
-                                while len(row) < len(headers):
-                                    row.append('')
-                                if len(row) > len(headers):
-                                    row = row[:len(headers)]
-                                data.append(row)
-                            df = pd.DataFrame(data, columns=headers)
-                        else:
-                            df = pd.DataFrame({'error': ['CSV parsing failed']})
+                        df = pd.DataFrame({'error': ['CSV parsing failed']})
             elif file_type == 'json':
                 data = json.loads(content)
                 if isinstance(data, list):
@@ -710,12 +708,16 @@ class DataSnapUniversalAI:
     
     def _generate_universal_sql(self, df: pd.DataFrame) -> str:
         try:
-            # Usar el generador SQL perfecto CON normalización
-            from optimizers.perfect_sql_generator import PerfectSQLGenerator
-            perfect_generator = PerfectSQLGenerator()
+            # Usar el optimizador dinámico CORREGIDO directamente
+            from optimizers.fixed_dynamic_sql_optimizer import FixedDynamicSQLOptimizer
+            fixed_optimizer = FixedDynamicSQLOptimizer()
             
-            # Habilitar normalización completa para aplicación perfecta
-            return perfect_generator.generate_perfect_sql(df, enable_normalization=True)
+            # Si ya tenemos SQL optimizado, devolverlo
+            if 'optimized_sql' in df.columns:
+                return '\n'.join(df['optimized_sql'].tolist())
+            
+            # Si no, generar SQL básico
+            return self._fallback_generate_sql(df)
             
         except Exception as e:
             print(f"Error en generador perfecto, usando fallback: {e}")
