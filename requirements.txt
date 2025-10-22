@@ -22,3 +22,4 @@ pycountry==24.6.1
 xlsxwriter==3.1.9
 chardet==5.2.0
 openpyxl-stubs==0.1.25
+number-parser==0.2.1
