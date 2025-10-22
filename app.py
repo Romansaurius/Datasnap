@@ -393,6 +393,21 @@ class DataSnapUniversalAI:
     
     def process_any_file(self, content: str, filename: str) -> dict:
         try:
+            # Manejar contenido vacío
+            if not content or content.strip() == '':
+                return {
+                    'success': True,
+                    'message': 'Archivo vacío procesado',
+                    'archivo_optimizado': '-- Archivo vacío',
+                    'nombre_archivo': f'empty_{filename}',
+                    'estadisticas': {
+                        'filas_optimizadas': 0,
+                        'tipo_detectado': 'empty',
+                        'tablas_procesadas': 0
+                    },
+                    'tipo_original': 'empty'
+                }
+            
             file_type = self._detect_type_universal(content, filename)
             
             if file_type == 'sql':
@@ -401,7 +416,27 @@ class DataSnapUniversalAI:
                 df = pd.read_csv(StringIO(content))
             elif file_type == 'json':
                 data = json.loads(content)
-                df = pd.DataFrame(data if isinstance(data, list) else [data])
+                if isinstance(data, list):
+                    df = pd.DataFrame(data)
+                elif isinstance(data, dict):
+                    # Manejar JSON anidado
+                    if any(isinstance(v, list) for v in data.values()):
+                        # Aplanar estructura anidada
+                        flattened_data = []
+                        for key, value in data.items():
+                            if isinstance(value, list):
+                                for item in value:
+                                    if isinstance(item, dict):
+                                        flattened_item = {'_source': key}
+                                        flattened_item.update(item)
+                                        flattened_data.append(flattened_item)
+                                    else:
+                                        flattened_data.append({'_source': key, 'value': item})
+                        df = pd.DataFrame(flattened_data)
+                    else:
+                        df = pd.DataFrame([data])
+                else:
+                    df = pd.DataFrame([{'value': data}])
                 # Aplicar correcciones críticas inmediatamente para JSON
                 df = self._apply_json_corrections(df)
             else:
