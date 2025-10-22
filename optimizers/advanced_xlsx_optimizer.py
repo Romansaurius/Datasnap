@@ -25,7 +25,7 @@ class AdvancedXLSXOptimizer:
         self.original_rows = 0
         self.final_rows = 0
     
-    def optimize_xlsx(self, xlsx_content: str) -> str:
+    def optimize_xlsx(self, xlsx_content) -> str:
         """Optimización XLSX completa"""
         
         try:
@@ -54,28 +54,39 @@ class AdvancedXLSXOptimizer:
             self.corrections_applied.append(f"Error during optimization: {e}")
             return f"Error: {e}"
     
-    def parse_xlsx_content(self, content: str) -> pd.DataFrame:
+    def parse_xlsx_content(self, content) -> pd.DataFrame:
         """Parse XLSX content with multiple strategies"""
         
         try:
-            # Try to decode if it's base64
-            if content.startswith('UEsD'):  # ZIP file signature in base64
-                decoded = base64.b64decode(content)
-                df = pd.read_excel(BytesIO(decoded))
-                self.corrections_applied.append("XLSX parsed from base64")
+            # If content is already bytes, use directly
+            if isinstance(content, bytes):
+                df = pd.read_excel(BytesIO(content))
+                self.corrections_applied.append("XLSX parsed from bytes")
                 return df
-        except:
-            pass
+        except Exception as e:
+            print(f"Error parsing bytes: {e}")
         
         try:
-            # Try direct pandas read if it's binary
-            df = pd.read_excel(BytesIO(content.encode('latin1')))
-            self.corrections_applied.append("XLSX parsed directly")
-            return df
-        except:
-            pass
+            # If content is string, try base64 decode
+            if isinstance(content, str):
+                if content.startswith('UEsD'):  # ZIP file signature in base64
+                    decoded = base64.b64decode(content)
+                    df = pd.read_excel(BytesIO(decoded))
+                    self.corrections_applied.append("XLSX parsed from base64")
+                    return df
+        except Exception as e:
+            print(f"Error parsing base64: {e}")
         
-        # Return empty DataFrame if parsing fails
+        try:
+            # Try encoding as latin1 and reading
+            if isinstance(content, str):
+                df = pd.read_excel(BytesIO(content.encode('latin1')))
+                self.corrections_applied.append("XLSX parsed with latin1")
+                return df
+        except Exception as e:
+            print(f"Error parsing latin1: {e}")
+        
+        # Return error DataFrame if all parsing fails
         return pd.DataFrame({'error': ['Failed to parse XLSX content']})
     
     def clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
