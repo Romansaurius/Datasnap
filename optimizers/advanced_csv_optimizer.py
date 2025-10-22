@@ -14,6 +14,10 @@ from io import StringIO
 from difflib import SequenceMatcher
 import pycountry
 from dateutil import parser
+from number_parser import parse_number, parser
+
+# Configurar el parser para español
+parser._LANGUAGE = "es"
 
 class AdvancedCSVOptimizer:
     """Optimizador CSV que corrige todos los errores posibles"""
@@ -222,13 +226,37 @@ class AdvancedCSVOptimizer:
         return series
     
     def fix_ages(self, series: pd.Series) -> pd.Series:
-        """Fix age values"""
-        series = pd.to_numeric(series, errors='coerce')
-        
-        # Remove invalid ages
-        series = series.where((series >= 0) & (series <= 120), np.nan)
-        
-        return series
+        """Fix age values using number_parser"""
+        def fix_age(age):
+            if pd.isna(age):
+                return age
+
+            age_str = str(age).strip()
+
+            # Manejar casos específicos
+            if age_str.lower() in ['invalid', 'n/a', 'null', 'none', '']:
+                return np.nan
+
+            # Si contiene letras, mantener como string
+            if re.search(r'[a-zA-Z]', age_str):
+                # Extraer la parte numérica al inicio
+                match = re.match(r'^(\d+(?:\.\d+)?)', age_str)
+                if match:
+                    return match.group(1)
+                else:
+                    return np.nan
+
+            # Usar number_parser para convertir texto a números
+            try:
+                parsed = parse_number(age_str)
+                if parsed is not None:
+                    return str(int(parsed)) if parsed == int(parsed) else str(parsed)
+                else:
+                    return np.nan
+            except:
+                return np.nan
+
+        return series.apply(fix_age)
     
     def fix_monetary_values(self, series: pd.Series) -> pd.Series:
         """Fix monetary values"""
@@ -414,25 +442,25 @@ class AdvancedCSVOptimizer:
         """Smart email correction without breaking valid emails"""
         if pd.isna(email) or str(email).strip() == '':
             return email
-        
+
         email_str = str(email).lower().strip()
-        
+
         # Remove mailto: prefix if present
         if email_str.startswith('mailto:'):
             email_str = email_str.replace('mailto:', '')
-        
+
         # If email doesn't have @, add @gmail.com
         if '@' not in email_str:
             return f"{email_str}@gmail.com"
-        
+
         # If email ends with @, add gmail.com
         if email_str.endswith('@'):
             return f"{email_str}gmail.com"
-        
+
         # Split email into user and domain parts
         if '@' in email_str:
             user_part, domain_part = email_str.split('@', 1)
-            
+
             # Fix common domain issues
             if domain_part == 'gmai' or domain_part == 'gmail':
                 domain_part = 'gmail.com'
@@ -460,14 +488,18 @@ class AdvancedCSVOptimizer:
                 domain_part = 'outlook.com'
             elif domain_part == 'gmial.com':
                 domain_part = 'gmail.com'
-            
+            # Agregar .com solo a emails @gmail sin .com
+            elif '@gmail' in email_str and not email_str.endswith('.com'):
+                email_str += '.com'
+                return email_str
+
             # Reconstruct email
             email_str = f"{user_part}@{domain_part}"
-        
+
         # Final validation - if it looks like an email now, return it
         if re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}$', email_str):
             return email_str
-        
+
         return email_str
     
     def _convert_date_format(self, date_str):
