@@ -188,26 +188,8 @@ class PerfectSQLGenerator:
         if primary_key not in main_df.columns:
             main_df.insert(0, primary_key, range(1, len(main_df) + 1))
         
-        # Normalizar solo si la tabla tiene sentido para normalizar
-        if self._should_normalize_table(table_name, main_df):
-            person_cols = self._detect_person_columns(main_df, primary_key)
-            
-            # Solo normalizar si hay suficientes columnas de persona
-            if len(person_cols) >= 3:
-                try:
-                    # Crear tabla de personas
-                    person_table = main_df[[primary_key] + person_cols].copy()
-                    person_table = person_table.drop_duplicates()
-                    
-                    # Verificar que tiene datos útiles
-                    if not person_table.empty and person_table[person_cols].notna().any().any():
-                        result_tables[f'{table_name}_personas'] = person_table
-                        # Remover columnas de persona de la tabla principal
-                        main_df = main_df.drop(person_cols, axis=1, errors='ignore')
-                except Exception as e:
-                    print(f"Warning: No se pudo crear tabla de personas: {e}")
-        
-        # Siempre incluir tabla principal
+        # DESHABILITAR NORMALIZACIÓN TEMPORALMENTE para evitar datos mezclados
+        # Solo retornar la tabla principal limpia
         result_tables[table_name] = main_df
         
         return result_tables
@@ -315,7 +297,11 @@ class PerfectSQLGenerator:
                         if pd.isna(value):
                             values.append('NULL')
                         elif isinstance(value, str):
-                            escaped_value = value.replace("'", "''")
+                            # Limpiar HTML entities
+                            clean_value = value.replace('&#39;', "'")
+                            clean_value = clean_value.replace('&quot;', '"')
+                            clean_value = clean_value.replace('&amp;', '&')
+                            escaped_value = clean_value.replace("'", "''")
                             values.append(f"'{escaped_value}'")
                         elif isinstance(value, bool):
                             values.append('1' if value else '0')
@@ -401,9 +387,17 @@ class PerfectSQLGenerator:
                                 if pd.isna(val):
                                     row_values.append('NULL')
                                 elif isinstance(val, str):
-                                    row_values.append(f"'{val.replace(chr(39), chr(39)+chr(39))}'")
+                                    # Limpiar HTML entities
+                                    clean_val = val.replace('&#39;', "'")
+                                    clean_val = clean_val.replace('&quot;', '"')
+                                    clean_val = clean_val.replace('&amp;', '&')
+                                    row_values.append(f"'{clean_val.replace(chr(39), chr(39)+chr(39))}'")
                                 else:
-                                    row_values.append(str(val))
+                                    # Limpiar HTML entities en valores no string
+                                    val_str = str(val).replace('&#39;', "'")
+                                    val_str = val_str.replace('&quot;', '"')
+                                    val_str = val_str.replace('&amp;', '&')
+                                    row_values.append(val_str)
                             values.append(f"({', '.join(row_values)})")
                         
                         sql_parts.append(',\n'.join(values) + ';')
