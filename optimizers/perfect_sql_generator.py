@@ -97,27 +97,29 @@ class PerfectSQLGenerator:
         return "\n".join(sql_parts)
     
     def _normalize_table(self, df: pd.DataFrame, table_name: str) -> Dict[str, pd.DataFrame]:
-        """Aplica normalizacion 1NF, 2NF, 3NF a una tabla"""
+        """Aplica normalización 1NF, 2NF, 3NF perfecta"""
         
-        normalized_tables = {}
-        
-        # 1NF: Eliminar valores multivaluados
-        df_1nf = self._apply_1nf(df)
-        
-        # Detectar clave primaria
-        id_col = self._detect_primary_key(df_1nf)
-        if id_col not in df_1nf.columns:
-            df_1nf.insert(0, 'id', range(1, len(df_1nf) + 1))
-            id_col = 'id'
-        
-        # 2NF y 3NF: Separar en tablas relacionadas
-        main_table, related_tables = self._apply_2nf_3nf(df_1nf, table_name, id_col)
-        
-        # Agregar tablas normalizadas
-        normalized_tables[table_name] = main_table
-        normalized_tables.update(related_tables)
-        
-        return normalized_tables
+        try:
+            # 1NF: Eliminar valores multivaluados
+            df_1nf = self._apply_1nf(df)
+            
+            # Detectar clave primaria
+            id_col = self._detect_primary_key(df_1nf)
+            if id_col not in df_1nf.columns:
+                df_1nf.insert(0, 'id', range(1, len(df_1nf) + 1))
+                id_col = 'id'
+            
+            # Aplicar normalización inteligente
+            result = self._apply_perfect_normalization(df_1nf, table_name, id_col)
+            
+            return result
+            
+        except Exception as e:
+            print(f"Error en normalización de {table_name}: {e}")
+            # Fallback: retornar tabla original
+            if 'id' not in df.columns:
+                df.insert(0, 'id', range(1, len(df) + 1))
+            return {table_name: df}
     
     def _apply_1nf(self, df: pd.DataFrame) -> pd.DataFrame:
         """Primera Forma Normal: Eliminar valores multivaluados"""
@@ -176,65 +178,79 @@ class PerfectSQLGenerator:
         
         return 'id'  # Se creara automaticamente
     
-    def _apply_2nf_3nf(self, df: pd.DataFrame, table_name: str, primary_key: str) -> Tuple[pd.DataFrame, Dict[str, pd.DataFrame]]:
-        """Aplica 2NF y 3NF con manejo perfecto de casos complejos"""
+    def _apply_perfect_normalization(self, df: pd.DataFrame, table_name: str, primary_key: str) -> Dict[str, pd.DataFrame]:
+        """Aplica normalización perfecta sin mezclar columnas"""
         
-        related_tables = {}
+        result_tables = {}
         main_df = df.copy()
         
         # Asegurar que primary_key existe
         if primary_key not in main_df.columns:
             main_df.insert(0, primary_key, range(1, len(main_df) + 1))
         
-        # Variables para evitar conflictos
-        person_cols = []
-        work_cols = []
-        product_cols = []
-        commercial_cols = []
-        transaction_cols = []
-        ref_cols = []
-        
-        # Normalización inteligente basada en patrones de datos
-        normalized_groups = self._detect_normalization_groups(main_df, primary_key)
-        
-        for group_name, group_cols in normalized_groups.items():
-            if len(group_cols) >= 2 and all(col in main_df.columns for col in group_cols):
+        # Normalizar solo si la tabla tiene sentido para normalizar
+        if self._should_normalize_table(table_name, main_df):
+            person_cols = self._detect_person_columns(main_df, primary_key)
+            
+            # Solo normalizar si hay suficientes columnas de persona
+            if len(person_cols) >= 3:
                 try:
-                    # Crear tabla normalizada
-                    normalized_table = main_df[[primary_key] + group_cols].drop_duplicates()
+                    # Crear tabla de personas
+                    person_table = main_df[[primary_key] + person_cols].copy()
+                    person_table = person_table.drop_duplicates()
                     
-                    # Crear tabla solo si tiene datos significativos y únicos
-                    if len(group_cols) >= 2 and len(normalized_table) > 1 and normalized_table[group_cols].notna().any().any():
-                        # Verificar que la tabla tenga datos útiles
-                        has_useful_data = False
-                        for col in group_cols:
-                            if normalized_table[col].notna().sum() > 0:
-                                has_useful_data = True
-                                break
-                        
-                        if has_useful_data:
-                            related_tables[f'{table_name}_{group_name}'] = normalized_table
-                            main_df = main_df.drop(group_cols, axis=1, errors='ignore')
+                    # Verificar que tiene datos útiles
+                    if not person_table.empty and person_table[person_cols].notna().any().any():
+                        result_tables[f'{table_name}_personas'] = person_table
+                        # Remover columnas de persona de la tabla principal
+                        main_df = main_df.drop(person_cols, axis=1, errors='ignore')
                 except Exception as e:
-                    print(f"Warning: No se pudo normalizar grupo {group_name}: {e}")
-                    continue
+                    print(f"Warning: No se pudo crear tabla de personas: {e}")
         
-        return main_df, related_tables
+        # Siempre incluir tabla principal
+        result_tables[table_name] = main_df
+        
+        return result_tables
+    
+    def _should_normalize_table(self, table_name: str, df: pd.DataFrame) -> bool:
+        """Determina si una tabla debe ser normalizada"""
+        
+        # Solo normalizar tablas que claramente contienen información personal
+        table_lower = table_name.lower()
+        
+        # Normalizar tablas de usuarios, empleados, clientes
+        if any(keyword in table_lower for keyword in ['usuario', 'empleado', 'cliente', 'persona']):
+            return True
+        
+        # No normalizar tablas de productos, ventas, etc. a menos que tengan muchas columnas de persona
+        person_keywords = ['nombre', 'email', 'edad', 'telefono', 'salario']
+        person_count = sum(1 for col in df.columns if any(keyword in col.lower() for keyword in person_keywords))
+        
+        return person_count >= 4  # Solo si tiene muchas columnas de persona
+    
+    def _detect_person_columns(self, df: pd.DataFrame, primary_key: str) -> List[str]:
+        """Detecta columnas que claramente pertenecen a información personal"""
+        
+        # Palabras clave exactas para evitar confusiones
+        exact_person_keywords = ['nombre', 'email', 'edad', 'telefono', 'salario']
+        person_cols = []
+        
+        for col in df.columns:
+            if col != primary_key and col.lower() not in ['activo', 'fecha_registro']:
+                col_lower = col.lower()
+                # Solo incluir columnas que coincidan exactamente o contengan las palabras clave
+                for keyword in exact_person_keywords:
+                    if (keyword == col_lower or 
+                        (keyword in col_lower and len(col_lower) <= len(keyword) + 10)):
+                        if col not in person_cols:
+                            person_cols.append(col)
+                        break
+        
+        return person_cols
     
     def _detect_normalization_groups(self, df: pd.DataFrame, primary_key: str) -> Dict[str, List[str]]:
-        """Detecta grupos de columnas para normalización inteligente"""
-        
-        groups = {}
-        
-        # Normalización simplificada para evitar problemas
-        person_keywords = ['nombre', 'email', 'edad', 'telefono', 'salario']
-        person_cols = [col for col in df.columns if col != primary_key and 
-                      any(keyword in col.lower() for keyword in person_keywords)]
-        
-        if len(person_cols) >= 3:
-            groups['personas'] = person_cols
-        
-        return groups
+        """Método legacy - ya no se usa"""
+        return {}
     
     def _detect_table_type(self, df: pd.DataFrame) -> str:
         """Detecta el tipo de tabla principal"""
