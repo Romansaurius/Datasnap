@@ -28,266 +28,46 @@ CORS(app, origins=["https://datasnap.escuelarobertoarlt.com", "http://localhost"
 class UniversalSQLParser:
     def parse(self, content: str) -> pd.DataFrame:
         try:
-            print("=== PARSING SQL UNIVERSAL ===")
+            print("=== PARSING SQL PERFECTO ===")
             
-            all_tables_data = {}
-            content_clean = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+            # Usar el parser perfecto
+            from optimizers.perfect_sql_parser import PerfectSQLParser
+            perfect_parser = PerfectSQLParser()
+            return perfect_parser.parse_sql_content(content)
             
-            # Limpiar caracteres HTML codificados
-            content_clean = content_clean.replace('&#39;', "'")
-            content_clean = content_clean.replace('&quot;', '"')
+        except Exception as e:
+            print(f"Error en parser perfecto, usando fallback: {e}")
+            return self._fallback_parse(content)
+    
+    def _fallback_parse(self, content: str) -> pd.DataFrame:
+        """Parser básico como fallback"""
+        try:
+            # Limpiar contenido
+            content = content.replace('&#39;', "'")
+            content = content.replace('&quot;', '"')
             
-            # Extraer estructura de CREATE TABLE primero
-            table_structures = {}
-            create_pattern = r'CREATE\s+TABLE\s+`?(\w+)`?\s*\(([^;]+)\);'
-            create_matches = re.finditer(create_pattern, content_clean, re.IGNORECASE | re.DOTALL)
-            
-            for create_match in create_matches:
-                table_name = create_match.group(1).lower()
-                columns_def = create_match.group(2)
-                
-                # Extraer nombres de columnas del CREATE TABLE
-                column_lines = [line.strip() for line in columns_def.split(',')]
-                columns = []
-                for line in column_lines:
-                    if line.strip():
-                        # Extraer solo el nombre de la columna (primera palabra)
-                        col_name = line.strip().split()[0].strip('`')
-                        if col_name and not col_name.upper() in ['PRIMARY', 'FOREIGN', 'UNIQUE', 'INDEX', 'KEY', 'CONSTRAINT']:
-                            columns.append(col_name)
-                
-                table_structures[table_name] = columns
-            
-            # Patrón para INSERT VALUES (sin columnas explícitas)
-            insert_pattern = r'INSERT\s+INTO\s+`?(\w+)`?\s+VALUES\s*([^;]+);'
-            matches = re.finditer(insert_pattern, content_clean, re.IGNORECASE | re.DOTALL)
-            
-            for match in matches:
-                table_name = match.group(1).lower()
-                values_block = match.group(2).strip()
-                
-                # Usar estructura de CREATE TABLE si está disponible
-                columns = table_structures.get(table_name, None)
-                
-
-                
-                # Parsear valores con mejor manejo de comillas
-                row_pattern = r'\(([^)]+)\)'
-                rows = re.findall(row_pattern, values_block)
-                
-                table_data = []
-                for i, row_values in enumerate(rows):
-                    try:
-                        values = self._parse_values_universal(row_values)
-                        
-                        # Solo generar nombres genéricos como último recurso
-                        if not columns:
-                            # Intentar inferir nombres basados en el contenido
-                            inferred_columns = self._infer_column_names(values, table_name)
-                            columns = inferred_columns if inferred_columns else [f'col_{j+1}' for j in range(len(values))]
-                        
-                        row_dict = {}
-                        for j, col in enumerate(columns):
-                            if j < len(values):
-                                # Aplicar correcciones críticas inmediatamente
-                                raw_value = values[j]
-                                corrected_value = self._apply_sql_corrections(col, raw_value)
-                                row_dict[col.strip()] = corrected_value
-                            else:
-                                row_dict[col.strip()] = None
-                        
-                        row_dict['_table_type'] = table_name
-                        table_data.append(row_dict)
-                        
-                    except Exception as e:
-                        continue
-                
-                if table_data:
-                    all_tables_data[table_name] = table_data
+            # Buscar INSERT statements simples
+            insert_pattern = r'INSERT\s+INTO\s+(\w+)\s*\(([^)]+)\)\s*VALUES\s*\(([^)]+)\)'
+            matches = re.findall(insert_pattern, content, re.IGNORECASE)
             
             all_data = []
-            for table_name, table_data in all_tables_data.items():
-                all_data.extend(table_data)
+            for match in matches:
+                table_name = match[0]
+                columns = [col.strip() for col in match[1].split(',')]
+                values = [val.strip().strip("'\"") for val in match[2].split(',')]
+                
+                if len(columns) == len(values):
+                    row_dict = dict(zip(columns, values))
+                    row_dict['_table_type'] = table_name
+                    all_data.append(row_dict)
             
             if all_data:
-                df = pd.DataFrame(all_data)
-                return df
+                return pd.DataFrame(all_data)
             else:
                 return pd.DataFrame({'error': ['No valid data found']})
                 
         except Exception as e:
             return pd.DataFrame({'error': [str(e)]})
-    
-    def _parse_values_universal(self, values_str: str) -> list:
-        values = []
-        current = ""
-        in_quotes = False
-        quote_char = None
-        
-        values_str = values_str.strip()
-        
-        i = 0
-        while i < len(values_str):
-            char = values_str[i]
-            
-            if char in ["'", '"'] and not in_quotes:
-                in_quotes = True
-                quote_char = char
-            elif char == quote_char and in_quotes:
-                if i + 1 < len(values_str) and values_str[i + 1] == quote_char:
-                    current += char
-                    i += 1
-                else:
-                    in_quotes = False
-                    quote_char = None
-            elif char == ',' and not in_quotes:
-                val = current.strip().strip("'\"")
-                values.append(val if val.upper() not in ['NULL', 'NONE', ''] else None)
-                current = ""
-                i += 1
-                continue
-            else:
-                current += char
-            
-            i += 1
-        
-        if current:
-            val = current.strip().strip("'\"")
-            values.append(val if val.upper() not in ['NULL', 'NONE', ''] else None)
-        
-        return values
-    
-    def _apply_sql_corrections(self, column_name: str, value: any) -> any:
-        """Aplica correcciones críticas específicas para SQL"""
-        if value is None:
-            return None
-            
-        value_str = str(value).strip()
-        if value_str in ['', 'NULL', 'None', 'nan']:
-            return None
-            
-        col_lower = column_name.lower()
-        
-        # Correcciones específicas por tipo de columna
-        if 'uuid' in col_lower:
-            # Limpiar UUIDs malformados
-            if len(value_str) < 36 or 'MALFORMED' in value_str:
-                return None
-            return value_str
-            
-        elif 'timestamp' in col_lower or 'time' in col_lower:
-            # Corregir timestamps inválidos
-            if value_str in ['INVALID_TIME', 'NULL']:
-                return None
-            return value_str
-            
-        elif 'temperatura' in col_lower or 'temp' in col_lower:
-            # Corregir temperaturas inválidas
-            if value_str == 'HOT':
-                return 25.0  # Temperatura por defecto
-            try:
-                temp = float(value_str)
-                return temp if -50 <= temp <= 100 else 25.0
-            except:
-                return 25.0
-                
-        elif 'humedad' in col_lower:
-            # Corregir humedad
-            if '%' in value_str:
-                value_str = value_str.replace('%', '')
-            try:
-                hum = float(value_str)
-                return min(100.0, max(0.0, hum))  # Entre 0-100%
-            except:
-                return 50.0
-                
-        elif 'presion' in col_lower:
-            # Corregir presión atmosférica
-            if value_str in ['N/A', '0']:
-                return 1013.25  # Presión estándar
-            # Extraer número de strings como "1013.25 hPa"
-            numbers = re.findall(r'\d+\.?\d*', value_str)
-            if numbers:
-                return float(numbers[0])
-            return 1013.25
-            
-        elif 'gps' in col_lower or 'coordenadas' in col_lower:
-            # Corregir coordenadas GPS
-            if value_str in ['INVALID_GPS', '0,0']:
-                return '40.4168,-3.7038'  # Madrid por defecto
-            return value_str
-            
-        elif 'bateria' in col_lower or 'voltaje' in col_lower:
-            # Corregir voltaje de batería
-            if value_str == 'LOW':
-                return 2.5
-            try:
-                volt = float(value_str)
-                return volt if 0 <= volt <= 5 else 3.7
-            except:
-                return 3.7
-                
-        elif 'estado' in col_lower and 'conexion' in col_lower:
-            # Estados de conexión válidos
-            valid_states = ['online', 'offline', 'mantenimiento', 'error']
-            if value_str.lower() in valid_states:
-                return value_str.lower()
-            return 'offline'  # Por defecto
-            
-        return value
-    
-    def _infer_column_names(self, values: list, table_name: str) -> list:
-        """Infiere nombres de columnas basados en contenido y tabla"""
-        
-        inferred_names = []
-        
-        for i, value in enumerate(values):
-            value_str = str(value).lower() if value is not None else ''
-            
-            # Inferir basado en patrones comunes
-            if i == 0:
-                inferred_names.append('id')
-            elif '@' in value_str:
-                inferred_names.append('email')
-            elif re.match(r'^\+?\d[\d\s\-\(\)]+$', value_str):
-                inferred_names.append('telefono')
-            elif re.match(r'^\d{4}-\d{2}-\d{2}', value_str):
-                inferred_names.append('fecha')
-            elif value_str in ['online', 'offline', 'activo', 'inactivo']:
-                inferred_names.append('estado')
-            elif re.match(r'^\d+\.\d+$', value_str) and float(value_str) < 100:
-                if 'sensor' in table_name or 'iot' in table_name:
-                    if i == 2:
-                        inferred_names.append('temperatura')
-                    elif i == 3:
-                        inferred_names.append('humedad')
-                    elif i == 6:
-                        inferred_names.append('voltaje')
-                    else:
-                        inferred_names.append('valor')
-                else:
-                    inferred_names.append('precio')
-            elif re.match(r'^[a-f0-9\-]{36}$', value_str):
-                inferred_names.append('uuid')
-            elif value_str.isdigit() and len(value_str) > 8:
-                inferred_names.append('timestamp')
-            else:
-                # Nombres genéricos basados en posición y tabla
-                if 'usuario' in table_name or 'empleado' in table_name:
-                    common_names = ['nombre', 'email', 'edad', 'salario', 'telefono']
-                elif 'sensor' in table_name or 'iot' in table_name:
-                    common_names = ['uuid', 'timestamp', 'temperatura', 'humedad', 'presion', 'gps', 'bateria', 'estado']
-                elif 'producto' in table_name:
-                    common_names = ['nombre', 'precio', 'stock', 'categoria']
-                else:
-                    common_names = ['campo', 'valor', 'dato', 'info']
-                
-                if i-1 < len(common_names):
-                    inferred_names.append(common_names[i-1])
-                else:
-                    inferred_names.append(f'campo_{i+1}')
-        
-        return inferred_names
 
 class UniversalAIOptimizer:
     def __init__(self):
@@ -756,76 +536,57 @@ class DataSnapUniversalAI:
             return df_clean.to_csv(index=False)
     
     def _generate_universal_sql(self, df: pd.DataFrame) -> str:
-        # Aplicar normalización si está habilitada
-        if hasattr(self, 'enable_normalization') and self.enable_normalization:
-            return self._generate_normalized_sql(df)
-        else:
-            return self._generate_standard_sql(df)
+        try:
+            # Usar el generador SQL perfecto
+            from optimizers.perfect_sql_generator import PerfectSQLGenerator
+            perfect_generator = PerfectSQLGenerator()
+            
+            # Aplicar normalización si está habilitada
+            enable_normalization = hasattr(self, 'enable_normalization') and self.enable_normalization
+            return perfect_generator.generate_perfect_sql(df, enable_normalization)
+            
+        except Exception as e:
+            print(f"Error en generador perfecto, usando fallback: {e}")
+            return self._fallback_generate_sql(df)
     
-    def _generate_normalized_sql(self, df: pd.DataFrame) -> str:
-        """Genera SQL normalizado (1NF, 2NF, 3NF)"""
-        from optimizers.sql_normalizer_fixed import SQLNormalizer
-        
-        normalizer = SQLNormalizer()
+    def _fallback_generate_sql(self, df: pd.DataFrame) -> str:
+        """Generador SQL básico como fallback"""
+        sql_parts = []
+        sql_parts.append("-- Datos optimizados por DataSnap IA")
+        sql_parts.append("")
         
         if '_table_type' in df.columns:
-            # Procesar cada tabla por separado
-            all_normalized = {}
             tables = df['_table_type'].unique()
             
             for table in tables:
                 table_df = df[df['_table_type'] == table].drop('_table_type', axis=1)
-                normalized_tables = normalizer.normalize_dataframe(table_df)
                 
-                # Prefijo para evitar conflictos
-                for norm_table_name, norm_df in normalized_tables.items():
-                    full_name = f"{table}_{norm_table_name}" if norm_table_name != 'main' else table
-                    all_normalized[full_name] = norm_df
-            
-            return normalizer.generate_normalized_sql(all_normalized, 'database')
-        else:
-            # Tabla única
-            normalized_tables = normalizer.normalize_dataframe(df)
-            return normalizer.generate_normalized_sql(normalized_tables, 'data')
-    
-    def _generate_standard_sql(self, df: pd.DataFrame) -> str:
-        """Genera SQL estándar sin normalización"""
-        sql_parts = []
-        tables = df['_table_type'].unique()
-        
-        for table in tables:
-            table_df = df[df['_table_type'] == table]
-            
-            valid_columns = []
-            for col in table_df.columns:
-                if col == '_table_type':
-                    continue
+                # Filtrar columnas válidas
+                valid_columns = []
+                for col in table_df.columns:
+                    if table_df[col].notna().any():
+                        valid_columns.append(col)
                 
-                has_data = table_df[col].notna().any() and (table_df[col] != '').any()
-                if has_data:
-                    valid_columns.append(col)
-            
-            if not table_df.empty and valid_columns:
-                sql_parts.append(f"-- Tabla {table} optimizada por IA UNIVERSAL")
-                
-                values = []
-                for _, row in table_df.iterrows():
-                    vals = []
-                    for col in valid_columns:
-                        if col in row and not pd.isna(row[col]) and str(row[col]).strip():
-                            if isinstance(row[col], (int, float)):
-                                vals.append(str(row[col]))
-                            else:
-                                escaped = str(row[col]).replace("'", "''")
-                                vals.append(f"'{escaped}'")
-                        else:
-                            vals.append('NULL')
-                    values.append(f"({', '.join(vals)})")
-                
-                if values:
+                if valid_columns and not table_df.empty:
+                    sql_parts.append(f"-- Tabla: {table}")
                     sql_parts.append(f"INSERT INTO {table} ({', '.join(valid_columns)}) VALUES")
+                    
+                    values = []
+                    for _, row in table_df.iterrows():
+                        row_values = []
+                        for col in valid_columns:
+                            val = row[col]
+                            if pd.isna(val):
+                                row_values.append('NULL')
+                            elif isinstance(val, str):
+                                escaped = val.replace("'", "''")
+                                row_values.append(f"'{escaped}'")
+                            else:
+                                row_values.append(str(val))
+                        values.append(f"({', '.join(row_values)})")
+                    
                     sql_parts.append(',\n'.join(values) + ';')
-                    sql_parts.append('')
+                    sql_parts.append("")
         
         return '\n'.join(sql_parts)
     
