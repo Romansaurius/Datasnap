@@ -18,3 +18,4 @@ python-levenshtein==0.21.1
 rapidfuzz==3.5.2
 sqlparse==0.4.4
 regex==2023.8.8
+pycountry==22.3.13
