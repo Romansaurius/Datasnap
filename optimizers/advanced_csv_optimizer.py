@@ -11,6 +11,9 @@ import re
 import html
 from datetime import datetime
 from io import StringIO
+from difflib import SequenceMatcher
+import pycountry
+from dateutil import parser
 
 class AdvancedCSVOptimizer:
     """Optimizador CSV que corrige todos los errores posibles"""
@@ -163,6 +166,14 @@ class AdvancedCSVOptimizer:
             # Fix city columns
             elif any(keyword in col_lower for keyword in ['ciudad', 'city', 'residencia']):
                 df[col] = self.fix_cities(df[col])
+            
+            # Fix country columns
+            elif any(keyword in col_lower for keyword in ['pais', 'country', 'nation']):
+                df[col] = self.fix_countries(df[col])
+            
+            # Fix gender columns
+            elif any(keyword in col_lower for keyword in ['genero', 'gender', 'sexo']):
+                df[col] = self.fix_genders(df[col])
         
         self.corrections_applied.append("Data types fixed and optimized")
         return df
@@ -282,6 +293,24 @@ class AdvancedCSVOptimizer:
         
         # Apply smart city correction
         series = series.apply(self._smart_city_correction)
+        
+        return series
+    
+    def fix_countries(self, series: pd.Series) -> pd.Series:
+        """Fix country names intelligently"""
+        series = series.astype(str)
+        
+        # Apply smart country correction
+        series = series.apply(self._smart_country_correction)
+        
+        return series
+    
+    def fix_genders(self, series: pd.Series) -> pd.Series:
+        """Fix gender values intelligently"""
+        series = series.astype(str)
+        
+        # Apply smart gender correction
+        series = series.apply(self._smart_gender_correction)
         
         return series
     
@@ -442,35 +471,82 @@ class AdvancedCSVOptimizer:
         return email_str
     
     def _convert_date_format(self, date_str):
-        """Convert various date formats to YYYY-MM-DD"""
+        """Convert various date formats to YYYY-MM-DD with intelligent validation"""
         if pd.isna(date_str) or str(date_str).strip() == '':
-            return date_str
+            return np.nan
         
         date_str = str(date_str).strip()
         
-        # Convert DD/MM/YYYY to YYYY-MM-DD
-        if re.match(r'^\d{1,2}/\d{1,2}/\d{4}$', date_str):
-            parts = date_str.split('/')
-            if len(parts) == 3:
-                day, month, year = parts
-                return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+        # Handle invalid date indicators
+        if date_str.lower() in ['nan', 'invalid_date', 'never', 'null', 'none']:
+            return np.nan
         
-        # Convert MM/DD/YYYY to YYYY-MM-DD (American format)
-        elif re.match(r'^\d{1,2}/\d{1,2}/\d{4}$', date_str):
-            parts = date_str.split('/')
-            if len(parts) == 3:
-                month, day, year = parts
-                return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+        try:
+            # Convert DD/MM/YYYY to YYYY-MM-DD
+            if re.match(r'^\d{1,2}/\d{1,2}/\d{4}$', date_str):
+                parts = date_str.split('/')
+                if len(parts) == 3:
+                    day, month, year = map(int, parts)
+                    
+                    # Validate and fix invalid dates
+                    if month > 12:
+                        month = 12
+                    if month < 1:
+                        month = 1
+                    
+                    # Fix impossible days
+                    if day > 31:
+                        day = 31
+                    if day < 1:
+                        day = 1
+                    
+                    # Handle February 30/31
+                    if month == 2 and day > 29:
+                        day = 28
+                    
+                    # Handle months with 30 days
+                    if month in [4, 6, 9, 11] and day > 30:
+                        day = 30
+                    
+                    return f"{year}-{month:02d}-{day:02d}"
+            
+            # Already in YYYY-MM-DD format - validate
+            elif re.match(r'^\d{4}-\d{1,2}-\d{1,2}$', date_str):
+                parts = date_str.split('-')
+                if len(parts) == 3:
+                    year, month, day = map(int, parts)
+                    
+                    # Validate and fix
+                    if month > 12:
+                        month = 12
+                    if month < 1:
+                        month = 1
+                    if day > 31:
+                        day = 31
+                    if day < 1:
+                        day = 1
+                    
+                    # Handle February
+                    if month == 2 and day > 29:
+                        day = 28
+                    
+                    # Handle months with 30 days
+                    if month in [4, 6, 9, 11] and day > 30:
+                        day = 30
+                    
+                    return f"{year}-{month:02d}-{day:02d}"
+            
+            # Try to parse with dateutil as fallback
+            try:
+                parsed_date = parser.parse(date_str, dayfirst=True)
+                return parsed_date.strftime('%Y-%m-%d')
+            except:
+                return np.nan
+                
+        except (ValueError, TypeError):
+            return np.nan
         
-        # Convert YYYY/MM/DD to YYYY-MM-DD
-        elif re.match(r'^\d{4}/\d{1,2}/\d{1,2}$', date_str):
-            return date_str.replace('/', '-')
-        
-        # Already in YYYY-MM-DD format
-        elif re.match(r'^\d{4}-\d{1,2}-\d{1,2}$', date_str):
-            return date_str
-        
-        return date_str
+        return np.nan
     
     def _smart_name_correction(self, name):
         """Smart name correction handling mixed cases properly"""
@@ -492,6 +568,95 @@ class AdvancedCSVOptimizer:
                 corrected_words.append(word)
         
         return ' '.join(corrected_words)
+    
+    def _smart_country_correction(self, country):
+        """Smart country correction using pycountry and similarity"""
+        if pd.isna(country) or str(country).strip() == '':
+            return country
+        
+        country_str = str(country).strip().lower()
+        
+        # Common Spanish variations
+        spanish_variations = {
+            'españa': 'España',
+            'spain': 'España', 
+            'esp': 'España',
+            'espana': 'España',
+            'spanish': 'España',
+            'es': 'España'
+        }
+        
+        if country_str in spanish_variations:
+            return spanish_variations[country_str]
+        
+        # Try to find country using pycountry
+        try:
+            # Try by name
+            try:
+                country_obj = pycountry.countries.lookup(country_str)
+                return country_obj.name
+            except:
+                pass
+            
+            # Try by alpha_2 code
+            try:
+                country_obj = pycountry.countries.get(alpha_2=country_str.upper())
+                if country_obj:
+                    return country_obj.name
+            except:
+                pass
+            
+            # Try by alpha_3 code
+            try:
+                country_obj = pycountry.countries.get(alpha_3=country_str.upper())
+                if country_obj:
+                    return country_obj.name
+            except:
+                pass
+            
+            # Fuzzy matching with common countries
+            common_countries = ['España', 'France', 'Germany', 'Italy', 'Portugal', 'United Kingdom', 'United States']
+            best_match = self._find_best_match(country_str, [c.lower() for c in common_countries])
+            if best_match:
+                return common_countries[[c.lower() for c in common_countries].index(best_match)]
+                
+        except Exception:
+            pass
+        
+        # Return capitalized version as fallback
+        return str(country).title()
+    
+    def _smart_gender_correction(self, gender):
+        """Smart gender correction"""
+        if pd.isna(gender) or str(gender).strip() == '':
+            return gender
+        
+        gender_str = str(gender).strip().lower()
+        
+        # Gender mappings
+        male_variations = ['m', 'male', 'masculino', 'hombre', 'h', 'man']
+        female_variations = ['f', 'female', 'femenino', 'mujer', 'woman']
+        
+        if gender_str in male_variations:
+            return 'Masculino'
+        elif gender_str in female_variations:
+            return 'Femenino'
+        
+        # Return original if not recognized
+        return str(gender).title()
+    
+    def _find_best_match(self, target: str, candidates: list, threshold: float = 0.6) -> str:
+        """Find best matching string using similarity"""
+        best_ratio = 0
+        best_match = None
+        
+        for candidate in candidates:
+            ratio = SequenceMatcher(None, target.lower(), candidate.lower()).ratio()
+            if ratio > best_ratio and ratio >= threshold:
+                best_ratio = ratio
+                best_match = candidate
+        
+        return best_match
     
     def get_optimization_summary(self) -> str:
         """Get summary of optimizations applied"""
