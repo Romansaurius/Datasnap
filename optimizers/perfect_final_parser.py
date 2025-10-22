@@ -115,16 +115,19 @@ class PerfectFinalParser:
             
             for row_values in rows:
                 if len(row_values) > 0:
-                    # Crear registro con manejo inteligente de columnas
-                    row_dict = {}
-                    for i, value in enumerate(row_values):
-                        if i < len(columns):
-                            row_dict[columns[i]] = value
-                        else:
-                            row_dict[f'col_{i+1}'] = value
-                    
-                    row_dict['_table_type'] = table_name
-                    all_data.append(row_dict)
+                    # Crear registro con mapeo correcto de columnas
+                    if len(row_values) > 0:
+                        row_dict = {}
+                        # Mapear valores a columnas correctamente
+                        for i, value in enumerate(row_values):
+                            if i < len(columns):
+                                row_dict[columns[i]] = value
+                            # No crear columnas extra si hay más valores que columnas
+                        
+                        # Solo agregar si tiene datos válidos
+                        if row_dict:
+                            row_dict['_table_type'] = table_name
+                            all_data.append(row_dict)
         
         return all_data
     
