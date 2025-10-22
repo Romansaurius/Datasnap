@@ -6,14 +6,17 @@ Optimizador SQL PERFECTO con IA, corrección de datos y predicción
 import re
 import pandas as pd
 import numpy as np
+import html
 from typing import List, Dict, Any
 from optimizers.perfect_ai_optimizer import PerfectAIOptimizer
+from optimizers.advanced_sql_fixer import AdvancedSQLFixer
 
 class PerfectSQLOptimizer:
     """Optimizador SQL PERFECTO"""
     
     def __init__(self):
         self.ai_optimizer = PerfectAIOptimizer()
+        self.sql_fixer = AdvancedSQLFixer()
         
         # Correcciones de sintaxis SQL
         self.sql_corrections = {
@@ -33,16 +36,16 @@ class PerfectSQLOptimizer:
     def optimize_sql(self, sql_content: str) -> str:
         """Optimización SQL PERFECTA"""
         
-        # 1. Extraer nombre de BD
-        db_name = self._extract_db_name(sql_content)
+        # 1. Fix HTML entities first
+        sql_content = self.sql_fixer.fix_html_entities(sql_content)
         
-        # 2. Corregir sintaxis
-        corrected_sql = self._correct_sql_syntax(sql_content)
+        # 2. Clean invalid data
+        sql_content = self.sql_fixer.validate_and_clean_data(sql_content)
         
-        # 3. Extraer y optimizar datos
-        optimized_sql = self._extract_and_optimize_data(corrected_sql, db_name)
+        # 3. Apply full normalization
+        normalized_sql = self.sql_fixer.normalize_database_structure(sql_content)
         
-        return optimized_sql
+        return normalized_sql
     
     def _extract_db_name(self, sql_content: str) -> str:
         """Extrae nombre de BD"""
