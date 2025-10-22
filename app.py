@@ -555,23 +555,27 @@ class DataSnapUniversalAI:
                     'tipo_original': 'sql'
                 }
                 
-                # Este código no se ejecutará, pero lo mantengo para compatibilidad
-                df = pd.DataFrame({'processed': [True]})
+
             elif file_type == 'csv':
                 # Usar el optimizador CSV avanzado directamente
                 from optimizers.advanced_csv_optimizer import AdvancedCSVOptimizer
                 csv_optimizer = AdvancedCSVOptimizer()
                 optimized_csv = csv_optimizer.optimize_csv(content)
                 
-                # Convertir resultado a DataFrame para compatibilidad
-                try:
-                    df = pd.read_csv(StringIO(optimized_csv))
-                except:
-                    # Fallback si hay error
-                    try:
-                        df = pd.read_csv(StringIO(content))
-                    except:
-                        df = pd.DataFrame({'error': ['CSV parsing failed']})
+                return {
+                    'success': True,
+                    'message': f'CSV optimizado correctamente',
+                    'archivo_optimizado': optimized_csv,
+                    'nombre_archivo': f'optimizado_{filename}_{int(datetime.now().timestamp())}.csv',
+                    'estadisticas': {
+                        'filas_optimizadas': csv_optimizer.final_rows,
+                        'tipo_detectado': 'csv',
+                        'filas_originales': csv_optimizer.original_rows,
+                        'optimizaciones_aplicadas': 'ADVANCED_CSV_OPTIMIZER',
+                        'version_ia': 'CSV_v1.0'
+                    },
+                    'tipo_original': 'csv'
+                }
             elif file_type == 'json':
                 data = json.loads(content)
                 if isinstance(data, list):
