@@ -30,10 +30,10 @@ class UniversalSQLParser:
         try:
             print("=== PARSING SQL SIMPLE ===")
             
-            # Usar el parser simple
-            from optimizers.simple_sql_parser import SimpleSQLParser
-            simple_parser = SimpleSQLParser()
-            return simple_parser.parse_sql_content(content)
+            # Usar el parser final
+            from optimizers.final_sql_parser import FinalSQLParser
+            final_parser = FinalSQLParser()
+            return final_parser.parse_sql_content(content)
             
         except Exception as e:
             print(f"Error en parser simple, usando fallback: {e}")
