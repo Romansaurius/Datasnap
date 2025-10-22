@@ -10,6 +10,7 @@ import numpy as np
 import os
 import json
 import re
+import base64
 from datetime import datetime
 import traceback
 from io import StringIO, BytesIO
@@ -925,6 +926,15 @@ def procesar():
         file_content = data.get('file_content', '')
         file_name = data.get('file_name', 'archivo')
         
+        # Handle XLSX files specially
+        if file_name.lower().endswith(('.xlsx', '.xls')):
+            # If it's base64 encoded, decode it to bytes
+            if isinstance(file_content, str) and file_content.startswith('UEsD'):
+                try:
+                    file_content = base64.b64decode(file_content)
+                except:
+                    pass  # Keep as string if decode fails
+        
         result = universal_ai.process_any_file(file_content, file_name)
         return jsonify(result)
         
@@ -943,8 +953,18 @@ def upload_original():
         if not refresh_token:
             return jsonify({'success': False, 'error': 'No Google refresh token'}), 400
         
-        file_content = file.read().decode('utf-8')
-        result = upload_to_google_drive(file_content, file.filename, refresh_token)
+        # Handle different file types properly
+        filename = file.filename.lower()
+        if filename.endswith(('.xlsx', '.xls')):
+            # For Excel files, keep as bytes
+            file_content = file.read()
+            # Convert to base64 for Google Drive upload
+            file_content_str = base64.b64encode(file_content).decode('utf-8')
+        else:
+            # For text files, decode as UTF-8
+            file_content_str = file.read().decode('utf-8')
+        
+        result = upload_to_google_drive(file_content_str, file.filename, refresh_token)
         
         return jsonify(result)
         
