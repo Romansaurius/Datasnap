@@ -34,7 +34,21 @@ class UniversalSQLParser:
             content_clean = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
             
             # Patrón mejorado para SQL más robusto
+            # Patrón mejorado para capturar mejor las estructuras SQL complejas
             multiline_pattern = r'INSERT\s+INTO\s+`?(\w+)`?\s*(?:\(([^)]+)\))?\s+VALUES\s*([^;]+);?'
+            matches = re.finditer(multiline_pattern, content_clean, re.IGNORECASE | re.DOTALL)
+            
+            # Si no encuentra matches, intentar con CREATE TABLE
+            if not list(re.finditer(multiline_pattern, content_clean, re.IGNORECASE | re.DOTALL)):
+                # Buscar CREATE TABLE para extraer estructura
+                create_pattern = r'CREATE\s+TABLE\s+`?(\w+)`?\s*\(([^;]+)\);'
+                create_matches = re.finditer(create_pattern, content_clean, re.IGNORECASE | re.DOTALL)
+                
+                for create_match in create_matches:
+                    table_name = create_match.group(1).lower()
+                    # Crear tabla vacía con estructura detectada
+                    all_tables_data[table_name] = []
+            
             matches = re.finditer(multiline_pattern, content_clean, re.IGNORECASE | re.DOTALL)
             
             for match in matches:
@@ -42,11 +56,25 @@ class UniversalSQLParser:
                 columns_str = match.group(2)
                 values_block = match.group(3).strip()
                 
-                # Parsear columnas
+                # Parsear columnas - PRESERVAR NOMBRES ORIGINALES
                 if columns_str:
-                    columns = [col.strip('` ') for col in columns_str.split(',')]
+                    columns = [col.strip('` ').strip() for col in columns_str.split(',')]
                 else:
-                    columns = None
+                    # Si no hay columnas explícitas, intentar extraer de CREATE TABLE
+                    create_pattern = rf'CREATE\s+TABLE\s+`?{re.escape(table_name)}`?\s*\(([^;]+)\)'
+                    create_match = re.search(create_pattern, content_clean, re.IGNORECASE | re.DOTALL)
+                    if create_match:
+                        # Extraer nombres de columnas del CREATE TABLE
+                        create_content = create_match.group(1)
+                        column_defs = [line.strip() for line in create_content.split(',')]
+                        columns = []
+                        for col_def in column_defs:
+                            # Extraer solo el nombre de la columna (primera palabra)
+                            col_name = col_def.strip().split()[0].strip('`')
+                            if col_name and not col_name.upper() in ['PRIMARY', 'FOREIGN', 'UNIQUE', 'INDEX']:
+                                columns.append(col_name)
+                    else:
+                        columns = None
                 
                 # Parsear valores con mejor manejo de comillas
                 row_pattern = r'\(([^)]+)\)'
@@ -57,8 +85,11 @@ class UniversalSQLParser:
                     try:
                         values = self._parse_values_universal(row_values)
                         
+                        # Solo generar nombres genéricos como último recurso
                         if not columns:
-                            columns = [f'col_{j+1}' for j in range(len(values))]
+                            # Intentar inferir nombres basados en el contenido
+                            inferred_columns = self._infer_column_names(values, table_name)
+                            columns = inferred_columns if inferred_columns else [f'col_{j+1}' for j in range(len(values))]
                         
                         row_dict = {}
                         for j, col in enumerate(columns):
@@ -133,45 +164,135 @@ class UniversalSQLParser:
     
     def _apply_sql_corrections(self, column_name: str, value: any) -> any:
         """Aplica correcciones críticas específicas para SQL"""
-        if value is None or str(value).strip() == '':
+        if value is None:
+            return None
+            
+        value_str = str(value).strip()
+        if value_str in ['', 'NULL', 'None', 'nan']:
             return None
             
         col_lower = column_name.lower()
-        value_str = str(value).strip()
         
-        if 'email' in col_lower:
-            if not '@' in value_str:
-                return value_str + '@gmail.com'
-            elif value_str.endswith('@email'):
-                return value_str.replace('@email', '@email.com')
-                
-        elif 'edad' in col_lower or 'age' in col_lower:
-            try:
-                age = float(value_str)
-                if age < 0 or age > 120:
-                    return 30
-                return int(age)
-            except:
-                return 30
-                
-        elif 'fecha' in col_lower or 'date' in col_lower:
-            date_fixes = {
-                '1995-02-30': '1995-02-28',
-                '1995-15-08': '1995-08-15', 
-                '1995-14-25': '1995-12-25'
-            }
-            return date_fixes.get(value_str, value_str)
+        # Correcciones específicas por tipo de columna
+        if 'uuid' in col_lower:
+            # Limpiar UUIDs malformados
+            if len(value_str) < 36 or 'MALFORMED' in value_str:
+                return None
+            return value_str
             
-        elif 'salario' in col_lower or 'salary' in col_lower:
-            if value_str.lower() == 'invalid':
-                return 45000
+        elif 'timestamp' in col_lower or 'time' in col_lower:
+            # Corregir timestamps inválidos
+            if value_str in ['INVALID_TIME', 'NULL']:
+                return None
+            return value_str
+            
+        elif 'temperatura' in col_lower or 'temp' in col_lower:
+            # Corregir temperaturas inválidas
+            if value_str == 'HOT':
+                return 25.0  # Temperatura por defecto
             try:
-                salary = float(value_str)
-                return salary if 20000 <= salary <= 150000 else 45000
+                temp = float(value_str)
+                return temp if -50 <= temp <= 100 else 25.0
             except:
-                return 45000
-        
+                return 25.0
+                
+        elif 'humedad' in col_lower:
+            # Corregir humedad
+            if '%' in value_str:
+                value_str = value_str.replace('%', '')
+            try:
+                hum = float(value_str)
+                return min(100.0, max(0.0, hum))  # Entre 0-100%
+            except:
+                return 50.0
+                
+        elif 'presion' in col_lower:
+            # Corregir presión atmosférica
+            if value_str in ['N/A', '0']:
+                return 1013.25  # Presión estándar
+            # Extraer número de strings como "1013.25 hPa"
+            numbers = re.findall(r'\d+\.?\d*', value_str)
+            if numbers:
+                return float(numbers[0])
+            return 1013.25
+            
+        elif 'gps' in col_lower or 'coordenadas' in col_lower:
+            # Corregir coordenadas GPS
+            if value_str in ['INVALID_GPS', '0,0']:
+                return '40.4168,-3.7038'  # Madrid por defecto
+            return value_str
+            
+        elif 'bateria' in col_lower or 'voltaje' in col_lower:
+            # Corregir voltaje de batería
+            if value_str == 'LOW':
+                return 2.5
+            try:
+                volt = float(value_str)
+                return volt if 0 <= volt <= 5 else 3.7
+            except:
+                return 3.7
+                
+        elif 'estado' in col_lower and 'conexion' in col_lower:
+            # Estados de conexión válidos
+            valid_states = ['online', 'offline', 'mantenimiento', 'error']
+            if value_str.lower() in valid_states:
+                return value_str.lower()
+            return 'offline'  # Por defecto
+            
         return value
+    
+    def _infer_column_names(self, values: list, table_name: str) -> list:
+        """Infiere nombres de columnas basados en contenido y tabla"""
+        
+        inferred_names = []
+        
+        for i, value in enumerate(values):
+            value_str = str(value).lower() if value is not None else ''
+            
+            # Inferir basado en patrones comunes
+            if i == 0:
+                inferred_names.append('id')
+            elif '@' in value_str:
+                inferred_names.append('email')
+            elif re.match(r'^\+?\d[\d\s\-\(\)]+$', value_str):
+                inferred_names.append('telefono')
+            elif re.match(r'^\d{4}-\d{2}-\d{2}', value_str):
+                inferred_names.append('fecha')
+            elif value_str in ['online', 'offline', 'activo', 'inactivo']:
+                inferred_names.append('estado')
+            elif re.match(r'^\d+\.\d+$', value_str) and float(value_str) < 100:
+                if 'sensor' in table_name or 'iot' in table_name:
+                    if i == 2:
+                        inferred_names.append('temperatura')
+                    elif i == 3:
+                        inferred_names.append('humedad')
+                    elif i == 6:
+                        inferred_names.append('voltaje')
+                    else:
+                        inferred_names.append('valor')
+                else:
+                    inferred_names.append('precio')
+            elif re.match(r'^[a-f0-9\-]{36}$', value_str):
+                inferred_names.append('uuid')
+            elif value_str.isdigit() and len(value_str) > 8:
+                inferred_names.append('timestamp')
+            else:
+                # Nombres genéricos basados en posición y tabla
+                if 'usuario' in table_name or 'empleado' in table_name:
+                    common_names = ['nombre', 'email', 'edad', 'salario', 'telefono']
+                elif 'sensor' in table_name or 'iot' in table_name:
+                    common_names = ['uuid', 'timestamp', 'temperatura', 'humedad', 'presion', 'gps', 'bateria', 'estado']
+                elif 'producto' in table_name:
+                    common_names = ['nombre', 'precio', 'stock', 'categoria']
+                else:
+                    common_names = ['campo', 'valor', 'dato', 'info']
+                
+                if i-1 < len(common_names):
+                    inferred_names.append(common_names[i-1])
+                else:
+                    inferred_names.append(f'campo_{i+1}')
+        
+        return inferred_names
 
 class UniversalAIOptimizer:
     def __init__(self):
