@@ -657,39 +657,52 @@ class AdvancedXLSXOptimizer:
         return df
     
     def _prepare_data_for_excel(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Prepare data for Excel export - clean and simple"""
+        """Prepare data for Excel export - completely dynamic, no hardcoding"""
         
         # Create a clean copy
         df_clean = df.copy()
         
-        # Fix column names - simple and robust
+        # Generate dynamic column names based on original columns
         new_columns = []
         for i, col in enumerate(df_clean.columns):
             if pd.isna(col) or str(col).strip() == '' or 'Unnamed' in str(col):
-                # Simple column naming
-                if i == 0:
-                    new_columns.append('nombre')
-                elif i == 1:
-                    new_columns.append('email')
-                else:
-                    new_columns.append(f'columna_{i+1}')
+                # Generate generic column name
+                new_columns.append(f'columna_{i+1}')
             else:
-                # Clean column name
-                clean_name = str(col).strip()[:30]  # Limit length
-                clean_name = re.sub(r'[^\w\s]', '', clean_name)  # Remove special chars
-                clean_name = clean_name.replace(' ', '_')
-                if not clean_name:
-                    clean_name = f'col_{i+1}'
+                # Clean existing column name for Excel compatibility
+                clean_name = str(col).strip()[:50]  # Limit length
+                # Remove problematic characters but keep meaning
+                clean_name = re.sub(r'[^\w\s]', '_', clean_name)
+                clean_name = re.sub(r'\s+', '_', clean_name)  # Replace spaces with underscores
+                clean_name = re.sub(r'_+', '_', clean_name)   # Remove multiple underscores
+                clean_name = clean_name.strip('_')            # Remove leading/trailing underscores
+                
+                if not clean_name:  # If nothing left after cleaning
+                    clean_name = f'columna_{i+1}'
+                
                 new_columns.append(clean_name)
         
-        df_clean.columns = new_columns
+        # Ensure unique column names
+        final_columns = []
+        for col in new_columns:
+            if col in final_columns:
+                counter = 1
+                while f"{col}_{counter}" in final_columns:
+                    counter += 1
+                final_columns.append(f"{col}_{counter}")
+            else:
+                final_columns.append(col)
         
-        # Clean data values
+        df_clean.columns = final_columns
+        
+        # Clean data values for Excel compatibility
         for col in df_clean.columns:
-            # Convert problematic values to strings
+            # Convert all values to strings and clean them
             df_clean[col] = df_clean[col].astype(str)
             # Replace 'nan' strings with empty strings
             df_clean[col] = df_clean[col].replace('nan', '')
+            # Remove problematic characters that can corrupt Excel
+            df_clean[col] = df_clean[col].apply(lambda x: re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', str(x)))
             # Limit string length to prevent Excel issues
             df_clean[col] = df_clean[col].str[:255]
         
@@ -698,7 +711,7 @@ class AdvancedXLSXOptimizer:
         df_clean = df_clean.dropna(how='all')
         df_clean = df_clean.fillna('')  # Fill remaining NaN with empty strings
         
-        self.corrections_applied.append("Data prepared for Excel compatibility")
+        self.corrections_applied.append("Data prepared for Excel compatibility (dynamic)")
         
         return df_clean
     
