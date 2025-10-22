@@ -226,53 +226,13 @@ class PerfectSQLGenerator:
         
         groups = {}
         
-        # Detectar el tipo de tabla principal para normalizar apropiadamente
-        table_type = self._detect_table_type(df)
+        # Normalización simplificada para evitar problemas
+        person_keywords = ['nombre', 'email', 'edad', 'telefono', 'salario']
+        person_cols = [col for col in df.columns if col != primary_key and 
+                      any(keyword in col.lower() for keyword in person_keywords)]
         
-        if table_type == 'usuarios':
-            # Para tabla de usuarios: separar info personal de info laboral
-            person_keywords = ['nombre', 'email', 'edad', 'telefono', 'salario', 'activo']
-            person_cols = [col for col in df.columns if col != primary_key and 
-                          any(keyword in col.lower() for keyword in person_keywords)]
-            if len(person_cols) >= 3:
-                groups['personas'] = person_cols
-            
-            work_keywords = ['departamento', 'ciudad', 'fecha_registro']
-            work_cols = [col for col in df.columns if col != primary_key and 
-                        any(keyword in col.lower() for keyword in work_keywords) and 
-                        col not in person_cols]
-            if len(work_cols) >= 2:
-                groups['trabajo'] = work_cols
-        
-        elif table_type == 'productos':
-            # Para tabla de productos: separar info del producto de info comercial
-            product_keywords = ['nombre', 'categoria', 'marca', 'modelo']
-            product_cols = [col for col in df.columns if col != primary_key and 
-                           any(keyword in col.lower() for keyword in product_keywords)]
-            if len(product_cols) >= 2:
-                groups['info_producto'] = product_cols
-            
-            commercial_keywords = ['precio', 'stock', 'descuento']
-            commercial_cols = [col for col in df.columns if col != primary_key and 
-                              any(keyword in col.lower() for keyword in commercial_keywords) and 
-                              col not in product_cols]
-            if len(commercial_cols) >= 2:
-                groups['info_comercial'] = commercial_cols
-        
-        elif table_type == 'ventas':
-            # Para tabla de ventas: separar transacción de referencias
-            transaction_keywords = ['cantidad', 'precio_unitario', 'fecha_venta', 'descuento_aplicado']
-            transaction_cols = [col for col in df.columns if col != primary_key and 
-                               any(keyword in col.lower() for keyword in transaction_keywords)]
-            if len(transaction_cols) >= 2:
-                groups['transaccion'] = transaction_cols
-            
-            ref_keywords = ['usuario_id', 'producto_id']
-            ref_cols = [col for col in df.columns if col != primary_key and 
-                       any(keyword in col.lower() for keyword in ref_keywords) and 
-                       col not in transaction_cols]
-            if len(ref_cols) >= 2:
-                groups['referencias'] = ref_cols
+        if len(person_cols) >= 3:
+            groups['personas'] = person_cols
         
         return groups
     
