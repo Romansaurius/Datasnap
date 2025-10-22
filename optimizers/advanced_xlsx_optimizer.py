@@ -50,8 +50,8 @@ class AdvancedXLSXOptimizer:
             # 5. Remove duplicates and empty rows
             df = self.remove_duplicates_and_empty(df)
             
-            # 6. Apply final corrections but preserve column names
-            df = self._apply_final_corrections(df)
+            # 6. Skip automatic column normalization to preserve original names
+            # df = self.normalize_column_names(df)  # Disabled to keep meaningful names
             
             # Generate XLSX binary content
             from io import BytesIO
@@ -655,114 +655,6 @@ class AdvancedXLSXOptimizer:
         
         self.corrections_applied.append("Column names normalized")
         return df
-    
-    def _apply_final_corrections(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Apply final corrections to data without changing column names"""
-        
-        # Apply corrections to each column based on its content
-        for col in df.columns:
-            col_lower = col.lower()
-            
-            # Apply corrections based on column content patterns
-            if any(keyword in col_lower for keyword in ['nombre', 'name', 'apellido', 'student', 'customer', 'client']):
-                df[col] = df[col].apply(self._smart_name_correction)
-            
-            elif any(keyword in col_lower for keyword in ['email', 'mail', 'correo']):
-                df[col] = df[col].apply(self._smart_email_correction)
-            
-            elif any(keyword in col_lower for keyword in ['ciudad', 'city']):
-                df[col] = df[col].apply(self._smart_city_correction)
-            
-            elif any(keyword in col_lower for keyword in ['pais', 'country']):
-                df[col] = df[col].apply(self._smart_country_correction)
-            
-            elif any(keyword in col_lower for keyword in ['genero', 'gender', 'sexo']):
-                df[col] = df[col].apply(self._smart_gender_correction)
-            
-            elif any(keyword in col_lower for keyword in ['edad', 'age']):
-                df[col] = df[col].apply(self._fix_age_value)
-            
-            elif any(keyword in col_lower for keyword in ['fecha', 'date', 'birth', 'nacimiento']):
-                df[col] = df[col].apply(self._convert_date_format)
-            
-            elif any(keyword in col_lower for keyword in ['activo', 'active', 'enabled', 'status']):
-                df[col] = df[col].apply(self._fix_boolean_value)
-            
-            elif any(keyword in col_lower for keyword in ['salario', 'salary', 'precio', 'price', 'cost']):
-                df[col] = df[col].apply(self._fix_monetary_value)
-        
-        self.corrections_applied.append("Final corrections applied to data")
-        return df
-    
-    def _fix_age_value(self, age):
-        """Fix age values"""
-        if pd.isna(age) or str(age).strip() == '':
-            return age
-        
-        age_str = str(age).strip().lower()
-        
-        # Handle text ages
-        text_ages = {
-            'treinta y dos': 32, 'treinta': 30, 'veinticinco': 25,
-            'veinte': 20, 'quince': 15, 'diez': 10
-        }
-        
-        for text_age, num_age in text_ages.items():
-            if text_age in age_str:
-                return num_age
-        
-        # Handle numeric ages
-        try:
-            age_val = float(re.sub(r'[^\d.]', '', age_str))
-            if age_val < 0 or age_val > 120:
-                return np.nan  # Invalid age
-            return int(age_val)
-        except:
-            return np.nan
-    
-    def _fix_boolean_value(self, value):
-        """Fix boolean values"""
-        if pd.isna(value) or str(value).strip() == '':
-            return value
-        
-        value_str = str(value).strip().lower()
-        
-        true_values = ['si', 'sí', 'yes', 'true', '1', 'activo', 'enabled', 'on']
-        false_values = ['no', 'false', '0', 'inactivo', 'disabled', 'off', 'maybe']
-        
-        if value_str in true_values:
-            return 'Sí'
-        elif value_str in false_values:
-            return 'No'
-        
-        return value
-    
-    def _fix_monetary_value(self, value):
-        """Fix monetary values"""
-        if pd.isna(value) or str(value).strip() == '':
-            return value
-        
-        value_str = str(value).strip().lower()
-        
-        # Handle text amounts
-        text_amounts = {
-            'gratis': 0, 'free': 0,
-            'cuarenta mil': 40000, 'veinte mil': 20000,
-            'doscientos euros': 200, 'doscientos': 200
-        }
-        
-        if value_str in text_amounts:
-            return text_amounts[value_str]
-        
-        # Clean monetary symbols and convert
-        try:
-            clean_value = re.sub(r'[€$£,]', '', value_str)
-            amount = float(clean_value)
-            if amount < 0:
-                return abs(amount)  # Convert negative to positive
-            return amount
-        except:
-            return np.nan
     
     def _prepare_data_for_excel(self, df: pd.DataFrame) -> pd.DataFrame:
         """Prepare data for Excel export - completely dynamic, no hardcoding"""
