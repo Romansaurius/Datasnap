@@ -413,7 +413,29 @@ class DataSnapUniversalAI:
             if file_type == 'sql':
                 df = self.sql_parser.parse(content)
             elif file_type == 'csv':
-                df = pd.read_csv(StringIO(content))
+                try:
+                    df = pd.read_csv(StringIO(content))
+                except Exception as e:
+                    # Intentar parsing robusto
+                    try:
+                        df = pd.read_csv(StringIO(content), sep=',', on_bad_lines='skip')
+                    except:
+                        # Fallback: leer línea por línea
+                        lines = content.strip().split('\n')
+                        if len(lines) > 1:
+                            headers = lines[0].split(',')
+                            data = []
+                            for line in lines[1:]:
+                                row = line.split(',')
+                                # Ajustar longitud de fila a headers
+                                while len(row) < len(headers):
+                                    row.append('')
+                                if len(row) > len(headers):
+                                    row = row[:len(headers)]
+                                data.append(row)
+                            df = pd.DataFrame(data, columns=headers)
+                        else:
+                            df = pd.DataFrame({'error': ['CSV parsing failed']})
             elif file_type == 'json':
                 data = json.loads(content)
                 if isinstance(data, list):
