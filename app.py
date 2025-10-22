@@ -576,6 +576,26 @@ class DataSnapUniversalAI:
                     },
                     'tipo_original': 'csv'
                 }
+            elif file_type == 'xlsx':
+                # Usar el optimizador XLSX avanzado directamente
+                from optimizers.advanced_xlsx_optimizer import AdvancedXLSXOptimizer
+                xlsx_optimizer = AdvancedXLSXOptimizer()
+                optimized_xlsx = xlsx_optimizer.optimize_xlsx(content)
+                
+                return {
+                    'success': True,
+                    'message': f'XLSX optimizado correctamente',
+                    'archivo_optimizado': optimized_xlsx,
+                    'nombre_archivo': f'optimizado_{filename}_{int(datetime.now().timestamp())}.csv',
+                    'estadisticas': {
+                        'filas_optimizadas': xlsx_optimizer.final_rows,
+                        'tipo_detectado': 'xlsx',
+                        'filas_originales': xlsx_optimizer.original_rows,
+                        'optimizaciones_aplicadas': 'ADVANCED_XLSX_OPTIMIZER',
+                        'version_ia': 'XLSX_v1.0'
+                    },
+                    'tipo_original': 'xlsx'
+                }
             elif file_type == 'json':
                 data = json.loads(content)
                 if isinstance(data, list):
@@ -647,6 +667,8 @@ class DataSnapUniversalAI:
             return 'sql'
         elif ext in ['.csv']:
             return 'csv'
+        elif ext in ['.xlsx', '.xls']:
+            return 'xlsx'
         elif ext in ['.json']:
             return 'json'
         
@@ -657,6 +679,8 @@ class DataSnapUniversalAI:
             return 'json'
         elif ',' in content and '\n' in content:
             return 'csv'
+        elif 'PK' in content and 'xl/' in content:
+            return 'xlsx'
         
         return 'txt'
     
