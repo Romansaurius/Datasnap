@@ -160,9 +160,8 @@ class PerfectAIOptimizer:
                             name_part = str(email).split('@')[0].replace('.', ' ').title()
                             df.loc[idx, col] = name_part
                 
-                # Para los que aún faltan
-                still_missing = df[col].isna() | (df[col].astype(str).isin(['', 'nan', 'Nan']))
-                df.loc[still_missing, col] = 'Usuario'
+                # Para los que aún faltan, mantener NA
+                # No inventar nombres
         
         return df
     
@@ -244,7 +243,8 @@ class PerfectAIOptimizer:
                 df[col] = df[col].fillna(median_stock)
                 
             elif 'ciudad' in col_lower or 'city' in col_lower:
-                df[col] = df[col].fillna(random.choice(self.spanish_cities))
+                # No inventar ciudades, mantener NA
+                pass
                 
             elif df[col].dtype in ['int64', 'float64']:
                 median_val = df[col].median()
@@ -292,9 +292,7 @@ class PerfectAIOptimizer:
             mask = df[col].str.match(r'^\d{9}$', na=False)
             df.loc[mask, col] = '+34' + df.loc[mask, col]
             
-            # Generar teléfonos para valores faltantes
-            missing_mask = df[col].isna() | (df[col] == 'nan') | (df[col] == '')
-            for idx in df[missing_mask].index:
-                df.loc[idx, col] = f"+34{random.randint(600000000, 699999999)}"
+            # No generar teléfonos aleatorios, mantener NA
+            # Los teléfonos faltantes se mantienen como NA
         
         return df
