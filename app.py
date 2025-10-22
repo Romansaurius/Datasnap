@@ -932,13 +932,17 @@ def procesar():
             if isinstance(file_content, str) and file_content.startswith('UEsD'):
                 try:
                     file_content = base64.b64decode(file_content)
-                except:
-                    pass  # Keep as string if decode fails
+                except Exception as decode_error:
+                    print(f"[ERROR] Base64 decode failed: {decode_error}")
+                    return jsonify({'success': False, 'error': f'Failed to decode XLSX file: {decode_error}'}), 400
         
         result = universal_ai.process_any_file(file_content, file_name)
         return jsonify(result)
         
     except Exception as e:
+        print(f"[ERROR] Exception in procesar: {str(e)}")
+        import traceback
+        print(f"[ERROR] Traceback: {traceback.format_exc()}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/upload_original', methods=['POST'])
