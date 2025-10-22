@@ -50,8 +50,8 @@ class AdvancedXLSXOptimizer:
             # 5. Remove duplicates and empty rows
             df = self.remove_duplicates_and_empty(df)
             
-            # 6. Normalize column names
-            df = self.normalize_column_names(df)
+            # 6. Skip automatic column normalization to preserve original names
+            # df = self.normalize_column_names(df)  # Disabled to keep meaningful names
             
             # Generate XLSX binary content
             from io import BytesIO
@@ -662,23 +662,26 @@ class AdvancedXLSXOptimizer:
         # Create a clean copy
         df_clean = df.copy()
         
-        # Generate dynamic column names based on original columns
+        # Keep original column names but clean them for Excel compatibility
         new_columns = []
         for i, col in enumerate(df_clean.columns):
             if pd.isna(col) or str(col).strip() == '' or 'Unnamed' in str(col):
-                # Generate generic column name
+                # Only use generic names for truly unnamed columns
                 new_columns.append(f'columna_{i+1}')
             else:
-                # Clean existing column name for Excel compatibility
+                # Clean existing column name while preserving meaning
                 clean_name = str(col).strip()[:50]  # Limit length
-                # Remove problematic characters but keep meaning
+                # Replace problematic characters with underscores but keep structure
                 clean_name = re.sub(r'[^\w\s]', '_', clean_name)
                 clean_name = re.sub(r'\s+', '_', clean_name)  # Replace spaces with underscores
                 clean_name = re.sub(r'_+', '_', clean_name)   # Remove multiple underscores
                 clean_name = clean_name.strip('_')            # Remove leading/trailing underscores
                 
-                if not clean_name:  # If nothing left after cleaning
-                    clean_name = f'columna_{i+1}'
+                # If cleaning removed everything, use original with safe chars only
+                if not clean_name:
+                    clean_name = re.sub(r'[^a-zA-Z0-9]', '_', str(col))[:20]
+                    if not clean_name:
+                        clean_name = f'columna_{i+1}'
                 
                 new_columns.append(clean_name)
         
