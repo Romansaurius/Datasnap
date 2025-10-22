@@ -19,42 +19,59 @@ except ImportError:
 
 def parse_sql_to_dataframes(sql_content):
     """
-    Parsea contenido SQL y extrae DataFrames por tabla desde INSERT statements usando regex.
+    Parsea contenido SQL y extrae DataFrames por tabla desde INSERT statements usando regex mejorado.
     """
     dataframes = {}
     queries = {'select': [], 'update': [], 'delete': []}
 
-    # Regex para INSERT INTO table (cols) VALUES (vals), (vals);
-    insert_pattern = r'INSERT INTO\s+`?(\w+)`?\s*\(([^)]+)\)\s*VALUES\s*((?:\([^)]+\)(?:\s*,\s*)*)+);'
-    matches = re.findall(insert_pattern, sql_content, re.IGNORECASE | re.DOTALL)
-
-    for match in matches:
-        table = match[0]
-        cols_str = match[1]
-        values_str = match[2]
-
-        columns = [col.strip('` ') for col in cols_str.split(',')]
-
-        # Parse values
-        values = []
-        val_pattern = r'\(([^)]+)\)'
-        val_matches = re.findall(val_pattern, values_str)
-        for val in val_matches:
-            # Split by comma but ignore commas inside single quotes
-            row = [v.strip("'\" ") for v in re.split(r",(?=(?:[^']*'[^']*')*[^']*$)", val)]
-            if len(row) == len(columns):
-                values.append(row)
-            else:
-                # Skip invalid rows
-                continue
-
-        if values:
-            df = pd.DataFrame(values, columns=columns)
-            print(f"Parsed df for table {table}")
-            print(df)
-            dataframes[table] = df
-
-    # Extraer queries con regex simple
+    # Limpiar contenido SQL
+    sql_clean = re.sub(r'/\*.*?\*/', '', sql_content, flags=re.DOTALL)  # Remover comentarios
+    sql_clean = re.sub(r'--.*?\n', '\n', sql_clean)  # Remover comentarios de línea
+    
+    # Patrones mejorados para diferentes formatos de INSERT
+    patterns = [
+        # INSERT INTO table (cols) VALUES (vals), (vals);
+        r'INSERT\s+INTO\s+`?(\w+)`?\s*\(([^)]+)\)\s*VALUES\s*((?:\([^)]+\)(?:\s*,\s*)*)+);?',
+        # INSERT INTO table VALUES (vals), (vals);
+        r'INSERT\s+INTO\s+`?(\w+)`?\s+VALUES\s*((?:\([^)]+\)(?:\s*,\s*)*)+);?',
+        # INSERT table (cols) VALUES (vals);
+        r'INSERT\s+`?(\w+)`?\s*\(([^)]+)\)\s*VALUES\s*((?:\([^)]+\)(?:\s*,\s*)*)+);?'
+    ]
+    
+    for pattern in patterns:
+        matches = re.finditer(pattern, sql_clean, re.IGNORECASE | re.DOTALL)
+        
+        for match in matches:
+            if len(match.groups()) == 3:  # Con columnas
+                table, cols_str, values_str = match.groups()
+                columns = [col.strip('` "') for col in cols_str.split(',')]
+            else:  # Sin columnas explícitas
+                table, values_str = match.groups()
+                columns = None
+            
+            # Parse values con mejor manejo de comillas
+            values = []
+            val_pattern = r'\(([^)]+)\)'
+            val_matches = re.findall(val_pattern, values_str)
+            
+            for val in val_matches:
+                # Mejorar parsing de valores con comillas anidadas
+                row = parse_sql_values(val)
+                
+                if not columns:
+                    columns = [f'col_{i+1}' for i in range(len(row))]
+                
+                if len(row) == len(columns):
+                    values.append(row)
+            
+            if values and table not in dataframes:
+                df = pd.DataFrame(values, columns=columns)
+                # Limpiar valores NULL
+                df = df.replace(['NULL', 'null', 'None', ''], pd.NA)
+                dataframes[table] = df
+                print(f"Parsed table '{table}' with {len(df)} rows")
+    
+    # Extraer queries
     if 'SELECT' in sql_content.upper():
         queries['select'].append('SELECT statement found')
     if 'UPDATE' in sql_content.upper():
@@ -63,6 +80,46 @@ def parse_sql_to_dataframes(sql_content):
         queries['delete'].append('DELETE statement found')
 
     return dataframes, queries
+
+def parse_sql_values(values_str):
+    """Parse SQL values handling quotes and special characters"""
+    values = []
+    current = ""
+    in_quotes = False
+    quote_char = None
+    
+    i = 0
+    while i < len(values_str):
+        char = values_str[i]
+        
+        if char in ["'", '"'] and not in_quotes:
+            in_quotes = True
+            quote_char = char
+        elif char == quote_char and in_quotes:
+            # Check for escaped quote
+            if i + 1 < len(values_str) and values_str[i + 1] == quote_char:
+                current += char
+                i += 1
+            else:
+                in_quotes = False
+                quote_char = None
+        elif char == ',' and not in_quotes:
+            val = current.strip().strip("'\"")
+            values.append(val if val.upper() not in ['NULL', 'NONE'] else '')
+            current = ""
+            i += 1
+            continue
+        else:
+            current += char
+        
+        i += 1
+    
+    # Add last value
+    if current:
+        val = current.strip().strip("'\"")
+        values.append(val if val.upper() not in ['NULL', 'NONE'] else '')
+    
+    return values
 
 def normalize_dataframe(df):
     """
@@ -296,8 +353,47 @@ def optimize_queries(sql_content, queries):
             suggestions.append("-- Sugerencia para DELETE: Índices en WHERE.")
     return sql_content + "\n" + "\n".join(suggestions)
 
+def process_sql_with_quality_fixes(sql_content):
+    """Procesa SQL aplicando correcciones de calidad de datos"""
+    try:
+        # 1. Parsear SQL a DataFrames
+        dataframes, queries = parse_sql_to_dataframes(sql_content)
+        
+        if not dataframes:
+            return sql_content  # Si no se puede parsear, devolver original
+        
+        # 2. Aplicar correcciones de calidad a cada tabla
+        from optimizers.critical_fixes_optimizer import CriticalFixesOptimizer
+        fixer = CriticalFixesOptimizer()
+        
+        optimized_dataframes = {}
+        for table_name, df in dataframes.items():
+            # Aplicar correcciones críticas
+            df_fixed = fixer.apply_critical_fixes(df)
+            optimized_dataframes[table_name] = df_fixed
+        
+        # 3. Generar SQL optimizado
+        db_name = extract_db_name(sql_content)
+        optimized_sql = generate_sql_from_dataframes(optimized_dataframes, db_name)
+        
+        # 4. Agregar comentarios de optimización
+        header = "-- SQL OPTIMIZADO POR DATASNAP IA GLOBAL\n"
+        header += "-- Correcciones aplicadas: edades, emails, fechas, valores nulos\n"
+        header += f"-- Tablas procesadas: {len(optimized_dataframes)}\n\n"
+        
+        return header + optimized_sql
+        
+    except Exception as e:
+        # Fallback: usar IA universal directamente
+        try:
+            from optimizers.universal_global_ai import UniversalGlobalAI
+            global_ai = UniversalGlobalAI()
+            return global_ai.process_any_data(sql_content)
+        except:
+            return f"-- Error procesando SQL: {str(e)}\n\n{sql_content}"
+
 def process_sql(ruta_archivo, historial_folder):
-    """Procesa archivos SQL con IA GLOBAL UNIVERSAL"""
+    """Procesa archivos SQL con IA GLOBAL UNIVERSAL y correcciones de calidad"""
     try:
         # Leer archivo SQL
         with open(ruta_archivo, 'r', encoding='utf-8') as f:
@@ -309,10 +405,8 @@ def process_sql(ruta_archivo, historial_folder):
         except Exception:
             pass
         
-        # Usar IA GLOBAL UNIVERSAL
-        from optimizers.universal_global_ai import UniversalGlobalAI
-        global_ai = UniversalGlobalAI()
-        optimized_sql = global_ai.process_any_data(sql_content)
+        # Procesar con correcciones de calidad
+        optimized_sql = process_sql_with_quality_fixes(sql_content)
         
         return optimized_sql
         
