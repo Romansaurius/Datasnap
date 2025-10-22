@@ -237,21 +237,18 @@ class AdvancedCSVOptimizer:
             if age_str.lower() in ['invalid', 'n/a', 'null', 'none', '']:
                 return np.nan
 
-            # Si contiene letras, mantener como string
-            if re.search(r'[a-zA-Z]', age_str):
-                # Extraer la parte numérica al inicio
-                match = re.match(r'^(\d+(?:\.\d+)?)', age_str)
-                if match:
-                    return match.group(1)
-                else:
-                    return np.nan
-
-            # Usar number_parser para convertir texto a números
+            # Usar number_parser para convertir texto a números (incluyendo palabras como "veinticino")
             try:
                 parsed = parse_number(age_str)
                 if parsed is not None:
                     return str(int(parsed)) if parsed == int(parsed) else str(parsed)
                 else:
+                    # Si no puede parsear, intentar extraer número de strings mixtos
+                    if re.search(r'[a-zA-Z]', age_str):
+                        # Extraer la parte numérica al inicio
+                        match = re.match(r'^(\d+(?:\.\d+)?)', age_str)
+                        if match:
+                            return match.group(1)
                     return np.nan
             except:
                 return np.nan
