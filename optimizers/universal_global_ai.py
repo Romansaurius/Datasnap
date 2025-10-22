@@ -226,10 +226,13 @@ class UniversalGlobalAI:
         # 3. CORRECCIÓN UNIVERSAL
         df = self._universal_correction(df)
         
-        # 4. PREDICCIÓN UNIVERSAL
+        # 4. APLICAR CORRECCIONES CRÍTICAS
+        df = self._apply_critical_fixes(df)
+        
+        # 5. PREDICCIÓN UNIVERSAL
         df = self._universal_prediction(df)
         
-        # 5. OPTIMIZACIÓN UNIVERSAL
+        # 6. OPTIMIZACIÓN UNIVERSAL
         df = self._universal_optimization(df)
         
         return df
@@ -432,11 +435,20 @@ class UniversalGlobalAI:
                 return num
             
             num_str = str(num).strip()
+            
+            # Manejar casos específicos
+            if num_str.lower() in ['invalid', 'n/a', 'null', 'none', '']:
+                return np.nan
+            
             # Remover caracteres no numéricos excepto punto y signo
             num_clean = re.sub(r'[^\d\.\-]', '', num_str)
             
             try:
-                return float(num_clean)
+                result = float(num_clean)
+                # Validar rangos razonables para diferentes tipos de números
+                if abs(result) > 1e10:  # Números extremadamente grandes
+                    return np.nan
+                return result
             except:
                 return np.nan
         
@@ -496,7 +508,11 @@ class UniversalGlobalAI:
             # Email genérico
             return f"usuario{idx}@gmail.com"
         
-        return series.apply(lambda x: predict_email(x, series.index[series == x].tolist()[0] if x in series.values else 0))
+        result = series.copy()
+        for idx in result.index:
+            if pd.isna(result.loc[idx]):
+                result.loc[idx] = predict_email(result.loc[idx], idx)
+        return result
     
     def _predict_phones(self, series: pd.Series) -> pd.Series:
         """Predice teléfonos faltantes"""
@@ -543,6 +559,16 @@ class UniversalGlobalAI:
                 return 'Desconocido'
         
         return series.apply(predict_text)
+    
+    def _apply_critical_fixes(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Aplica correcciones críticas específicas"""
+        try:
+            from .critical_fixes_optimizer import CriticalFixesOptimizer
+            critical_fixer = CriticalFixesOptimizer()
+            return critical_fixer.apply_critical_fixes(df)
+        except Exception as e:
+            print(f"Error aplicando correcciones críticas: {e}")
+            return df
     
     def _extract_data_from_sql(self, sql_content: str) -> pd.DataFrame:
         """Extrae datos de SQL"""
