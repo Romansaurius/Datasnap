@@ -41,10 +41,11 @@ class UniversalSQLParser:
             fixed_optimizer = FixedDynamicSQLOptimizer()
             result = fixed_optimizer.optimize_sql(content)
             
-            # Convertir resultado SQL a DataFrame para compatibilidad
-            lines = result.split('\n')
-            data = [{'optimized_sql': line} for line in lines if line.strip()]
-            return pd.DataFrame(data)
+            # Guardar el SQL optimizado para uso posterior
+            self._optimized_sql_result = result
+            
+            # Crear DataFrame simple para compatibilidad
+            return pd.DataFrame({'sql_optimized': [True], 'tables_count': [result.count('CREATE TABLE')]})
             
         except Exception as e:
             print(f"Error en parser simple, usando fallback: {e}")
@@ -512,6 +513,7 @@ class DataSnapUniversalAI:
         # Deshabilitar optimizador global para evitar mezclar columnas
         self.global_ai = None
         self.use_global_ai = False
+        self._optimized_sql_result = None
     
     def process_any_file(self, content: str, filename: str) -> dict:
         try:
@@ -533,7 +535,28 @@ class DataSnapUniversalAI:
             file_type = self._detect_type_universal(content, filename)
             
             if file_type == 'sql':
-                df = self.sql_parser.parse(content)
+                # Para SQL, usar directamente el optimizador y devolver resultado
+                from optimizers.fixed_dynamic_sql_optimizer import FixedDynamicSQLOptimizer
+                sql_optimizer = FixedDynamicSQLOptimizer()
+                optimized_sql = sql_optimizer.optimize_sql(content)
+                
+                return {
+                    'success': True,
+                    'message': f'SQL optimizado correctamente',
+                    'archivo_optimizado': optimized_sql,
+                    'nombre_archivo': f'optimizado_{filename}_{int(datetime.now().timestamp())}.sql',
+                    'estadisticas': {
+                        'filas_optimizadas': optimized_sql.count('INSERT INTO'),
+                        'tipo_detectado': 'sql',
+                        'tablas_procesadas': optimized_sql.count('CREATE TABLE'),
+                        'optimizaciones_aplicadas': 'DYNAMIC_SQL_OPTIMIZER',
+                        'version_ia': 'FIXED_v1.0'
+                    },
+                    'tipo_original': 'sql'
+                }
+                
+                # Este código no se ejecutará, pero lo mantengo para compatibilidad
+                df = pd.DataFrame({'processed': [True]})
             elif file_type == 'csv':
                 # Usar el optimizador CSV avanzado directamente
                 from optimizers.advanced_csv_optimizer import AdvancedCSVOptimizer
@@ -708,13 +731,9 @@ class DataSnapUniversalAI:
     
     def _generate_universal_sql(self, df: pd.DataFrame) -> str:
         try:
-            # Usar el optimizador dinámico CORREGIDO directamente
-            from optimizers.fixed_dynamic_sql_optimizer import FixedDynamicSQLOptimizer
-            fixed_optimizer = FixedDynamicSQLOptimizer()
-            
-            # Si ya tenemos SQL optimizado, devolverlo
-            if 'optimized_sql' in df.columns:
-                return '\n'.join(df['optimized_sql'].tolist())
+            # Si tenemos SQL optimizado guardado, devolverlo
+            if hasattr(self, '_optimized_sql_result'):
+                return self._optimized_sql_result
             
             # Si no, generar SQL básico
             return self._fallback_generate_sql(df)
