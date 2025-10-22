@@ -28,15 +28,15 @@ CORS(app, origins=["https://datasnap.escuelarobertoarlt.com", "http://localhost"
 class UniversalSQLParser:
     def parse(self, content: str) -> pd.DataFrame:
         try:
-            print("=== PARSING SQL PERFECTO ===")
+            print("=== PARSING SQL SIMPLE ===")
             
-            # Usar el parser perfecto
-            from optimizers.perfect_sql_parser import PerfectSQLParser
-            perfect_parser = PerfectSQLParser()
-            return perfect_parser.parse_sql_content(content)
+            # Usar el parser simple
+            from optimizers.simple_sql_parser import SimpleSQLParser
+            simple_parser = SimpleSQLParser()
+            return simple_parser.parse_sql_content(content)
             
         except Exception as e:
-            print(f"Error en parser perfecto, usando fallback: {e}")
+            print(f"Error en parser simple, usando fallback: {e}")
             return self._fallback_parse(content)
     
     def _fallback_parse(self, content: str) -> pd.DataFrame:
@@ -381,14 +381,9 @@ class DataSnapUniversalAI:
     def __init__(self):
         self.sql_parser = UniversalSQLParser()
         self.optimizer = UniversalAIOptimizer()
-        # Import the comprehensive AI optimizer
-        try:
-            from optimizers.universal_global_ai import UniversalGlobalAI
-            self.global_ai = UniversalGlobalAI()
-            self.use_global_ai = True
-        except ImportError:
-            self.global_ai = None
-            self.use_global_ai = False
+        # Deshabilitar optimizador global para evitar mezclar columnas
+        self.global_ai = None
+        self.use_global_ai = False
     
     def process_any_file(self, content: str, filename: str) -> dict:
         try:
@@ -409,18 +404,8 @@ class DataSnapUniversalAI:
                 # Aplicar correcciones para TXT
                 df = self._apply_txt_corrections(df)
             
-            # Use the comprehensive AI optimizer if available
-            if self.use_global_ai and self.global_ai:
-                try:
-                    optimized_df = self.global_ai.process_any_data(df)
-                    # Ensure it's a DataFrame
-                    if not isinstance(optimized_df, pd.DataFrame):
-                        optimized_df = df
-                except Exception as e:
-                    print(f"Error with global AI, using fallback: {e}")
-                    optimized_df = self.optimizer.optimize_universal(df)
-            else:
-                optimized_df = self.optimizer.optimize_universal(df)
+            # Usar solo el optimizador básico para evitar mezclar columnas
+            optimized_df = self.optimizer.optimize_universal(df)
             
             output = self._generate_universal_output(optimized_df, file_type)
             
