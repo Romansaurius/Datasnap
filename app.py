@@ -13,6 +13,12 @@ import re
 from datetime import datetime
 import traceback
 from io import StringIO, BytesIO
+from difflib import SequenceMatcher
+try:
+    from fuzzywuzzy import fuzz, process
+    FUZZYWUZZY_AVAILABLE = True
+except ImportError:
+    FUZZYWUZZY_AVAILABLE = False
 try:
     from google.oauth2.credentials import Credentials
     from google.auth.transport.requests import Request
@@ -71,6 +77,13 @@ class UniversalSQLParser:
 
 class UniversalAIOptimizer:
     def __init__(self):
+        # Dominios de email comunes para corrección inteligente
+        self.common_email_domains = [
+            'gmail.com', 'hotmail.com', 'yahoo.com', 'outlook.com', 'live.com',
+            'icloud.com', 'aol.com', 'protonmail.com', 'mail.com', 'zoho.com',
+            'yandex.com', 'mail.ru', 'qq.com', '163.com', 'sina.com'
+        ]
+        
         self.common_fixes = {
             'gmai.com': 'gmail.com', 'gmial.com': 'gmail.com', 'hotmial.com': 'hotmail.com',
             'yahoo.co': 'yahoo.com', 'outlok.com': 'outlook.com', 'gmail.comm': 'gmail.com'
@@ -185,13 +198,34 @@ class UniversalAIOptimizer:
         
         email = str(email).lower().strip()
         
+        # Aplicar correcciones conocidas primero
         for wrong, correct in self.common_fixes.items():
             email = email.replace(wrong, correct)
         
+        # Si no tiene @, agregar dominio por defecto
         if '@' not in email:
             email = email + '@gmail.com'
         elif email.endswith('@'):
             email += 'gmail.com'
+        else:
+            # Corrección inteligente del dominio
+            email = self._smart_email_correction(email)
+        
+        return email
+    
+    def _smart_email_correction(self, email: str) -> str:
+        """Corrección inteligente de dominios de email"""
+        
+        if '@' not in email:
+            return email
+        
+        local_part, domain = email.split('@', 1)
+        
+        # Buscar el dominio más similar
+        best_domain = self._find_best_match(domain, self.common_email_domains, threshold=0.7)
+        
+        if best_domain:
+            return f"{local_part}@{best_domain}"
         
         return email
     
@@ -276,6 +310,9 @@ class UniversalAIOptimizer:
         try:
             clean_price = re.sub(r'[^\d\.\-]', '', price_str)
             price_val = float(clean_price) if clean_price else None
+            # Corregir precios/salarios negativos
+            if price_val and price_val < 0:
+                return abs(price_val)  # Convertir a positivo
             return price_val if price_val and price_val >= 0 else None
         except:
             return None
@@ -314,10 +351,12 @@ class UniversalAIOptimizer:
         
         try:
             val = float(number_str)
-            # Validar rangos razonables para edades
-            if 'edad' in str(self).lower() and (val < 0 or val > 120):
-                return None
-            return abs(val) if val < 0 else val  # Convertir negativos a positivos
+            # Corregir edades negativas o imposibles
+            if val < 0:
+                return abs(val) if abs(val) <= 120 else 30  # Edad promedio si es muy alta
+            elif val > 120:
+                return 30  # Edad promedio para casos extremos
+            return val
         except:
             return None
     
@@ -357,7 +396,83 @@ class UniversalAIOptimizer:
         text = str(text).strip()
         text = re.sub(r'\s+', ' ', text)
         
-        return text
+        # Corrección inteligente de texto truncado o con errores
+        corrected_text = self._smart_text_correction(text)
+        
+        return corrected_text
+    
+    def _smart_text_correction(self, text: str) -> str:
+        """Corrección inteligente de texto usando algoritmos de similitud"""
+        
+        # Lista de ciudades y países comunes para corrección
+        common_places = [
+            'barcelona', 'madrid', 'valencia', 'sevilla', 'bilbao', 'zaragoza', 'málaga',
+            'murcia', 'palma', 'las palmas', 'córdoba', 'valladolid', 'vigo', 'gijón',
+            'hospitalet', 'coruña', 'vitoria', 'granada', 'elche', 'oviedo', 'badalona',
+            'cartagena', 'terrassa', 'jerez', 'sabadell', 'móstoles', 'santa cruz',
+            'pamplona', 'almería', 'fuenlabrada', 'leganés', 'donostia', 'castellón',
+            'burgos', 'santander', 'getafe', 'albacete', 'alcorcón', 'logroño',
+            'paris', 'london', 'berlin', 'rome', 'amsterdam', 'brussels', 'vienna',
+            'prague', 'budapest', 'warsaw', 'stockholm', 'oslo', 'copenhagen', 'helsinki',
+            'dublin', 'lisbon', 'athens', 'moscow', 'beijing', 'tokyo', 'seoul',
+            'new york', 'los angeles', 'chicago', 'houston', 'phoenix', 'philadelphia',
+            'san antonio', 'san diego', 'dallas', 'san jose', 'austin', 'jacksonville',
+            'são paulo', 'rio de janeiro', 'brasília', 'salvador', 'fortaleza',
+            'belo horizonte', 'manaus', 'curitiba', 'recife', 'porto alegre'
+        ]
+        
+        text_lower = text.lower()
+        
+        # Si el texto parece truncado (muy corto para una ciudad)
+        if len(text) >= 4 and len(text) <= 12:
+            best_match = self._find_best_match(text_lower, common_places)
+            if best_match:
+                return best_match.title()
+        
+        # Corrección de errores tipográficos comunes
+        corrected = self._fix_common_typos(text)
+        
+        return corrected
+    
+    def _find_best_match(self, text: str, candidates: list, threshold: float = 0.6) -> str:
+        """Encuentra la mejor coincidencia usando algoritmos de similitud"""
+        
+        if FUZZYWUZZY_AVAILABLE:
+            # Usar fuzzywuzzy si está disponible
+            match = process.extractOne(text, candidates, scorer=fuzz.ratio)
+            if match and match[1] >= (threshold * 100):
+                return match[0]
+        else:
+            # Usar SequenceMatcher como fallback
+            best_ratio = 0
+            best_match = None
+            
+            for candidate in candidates:
+                ratio = SequenceMatcher(None, text, candidate).ratio()
+                if ratio > best_ratio and ratio >= threshold:
+                    best_ratio = ratio
+                    best_match = candidate
+            
+            if best_match:
+                return best_match
+        
+        return None
+    
+    def _fix_common_typos(self, text: str) -> str:
+        """Corrige errores tipográficos comunes"""
+        
+        # Patrones de corrección comunes
+        typo_patterns = {
+            r'\b(\w+)on\b': lambda m: m.group(1) + 'ona' if len(m.group(1)) > 3 else m.group(0),  # barcelon -> barcelona
+            r'\b(\w+)i\b$': lambda m: m.group(1) + 'id' if len(m.group(1)) > 3 else m.group(0),   # madri -> madrid
+            r'\b(\w+)ll\b$': lambda m: m.group(1) + 'lla' if len(m.group(1)) > 3 else m.group(0), # sevill -> sevilla
+        }
+        
+        corrected = text
+        for pattern, replacement in typo_patterns.items():
+            corrected = re.sub(pattern, replacement, corrected, flags=re.IGNORECASE)
+        
+        return corrected
     
     def _optimize_any_data(self, df: pd.DataFrame) -> pd.DataFrame:
         # Crear copia para evitar SettingWithCopyWarning
