@@ -83,8 +83,8 @@ class CriticalFixesOptimizer:
                         except:
                             pass
                     
-                    # Generar edad aleatoria realista
-                    df.loc[idx, col] = random.randint(25, 45)
+                    # Usar edad promedio en lugar de aleatoria
+                    df.loc[idx, col] = int(mean_age)
         
         return df
     
@@ -138,8 +138,8 @@ class CriticalFixesOptimizer:
                     except:
                         pass
                     
-                    # Si no se puede corregir, generar fecha válida
-                    return f"199{random.randint(0, 9)}-{random.randint(1, 12):02d}-{random.randint(1, 28):02d}"
+                    # Si no se puede corregir, devolver NA
+                    return None
                 
                 df[col] = df[col].apply(fix_date)
         
@@ -190,20 +190,8 @@ class CriticalFixesOptimizer:
                 # Rellenar salarios faltantes o inválidos
                 invalid_mask = df[col].isna() | (df[col] < 20000) | (df[col] > 150000)
                 
-                # Generar salarios basados en edad si existe
-                age_cols = [c for c in df.columns if 'edad' in c.lower()]
-                if age_cols:
-                    for idx in df[invalid_mask].index:
-                        age = df.loc[idx, age_cols[0]]
-                        if pd.notna(age):
-                            # Salario base + experiencia
-                            base_salary = 25000
-                            experience_bonus = max(0, (age - 22)) * 1000
-                            df.loc[idx, col] = min(base_salary + experience_bonus, 80000)
-                        else:
-                            df.loc[idx, col] = mean_salary
-                else:
-                    df.loc[invalid_mask, col] = mean_salary
+                # Usar salario promedio para valores inválidos
+                df.loc[invalid_mask, col] = mean_salary
         
         return df
     
@@ -222,7 +210,8 @@ class CriticalFixesOptimizer:
             if 'estado' in col_lower or 'state' in col_lower:
                 df[col] = df[col].fillna(1.0)  # Activo por defecto
             elif 'ciudad' in col_lower or 'city' in col_lower:
-                df[col] = df[col].fillna(random.choice(self.spanish_cities))
+                # No inventar ciudades, mantener NA
+                pass
             elif 'codigo' in col_lower and 'postal' in col_lower:
                 df[col] = df[col].fillna('28001')  # Madrid por defecto
         
@@ -237,8 +226,8 @@ class CriticalFixesOptimizer:
             if col in df.columns:
                 def generate_phone(phone):
                     if pd.isna(phone) or str(phone).lower() in ['n/a', 'nan', 'none']:
-                        # Generar teléfono español válido
-                        return f"555-{random.randint(1000, 9999)}"
+                        # No generar teléfonos, mantener NA
+                        return pd.NA
                     return phone
                 
                 df[col] = df[col].apply(generate_phone)
