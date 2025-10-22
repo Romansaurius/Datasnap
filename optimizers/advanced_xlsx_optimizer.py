@@ -53,9 +53,23 @@ class AdvancedXLSXOptimizer:
             # 6. Normalize column names
             df = self.normalize_column_names(df)
             
-            # Return as CSV since XLSX generation is complex
-            result = df.to_csv(index=False, encoding='utf-8')
-            return result
+            # Generate XLSX binary content
+            from io import BytesIO
+            import base64
+            
+            # Create Excel file in memory
+            excel_buffer = BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name='Optimized')
+            
+            # Get binary content
+            excel_buffer.seek(0)
+            excel_binary = excel_buffer.getvalue()
+            
+            # Convert to base64 for transport
+            excel_base64 = base64.b64encode(excel_binary).decode('utf-8')
+            
+            return excel_base64
             
         except Exception as e:
             print(f"[XLSX ERROR] Exception during optimization: {str(e)}")
