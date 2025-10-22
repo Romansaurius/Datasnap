@@ -18,4 +18,7 @@ python-levenshtein==0.21.1
 rapidfuzz==3.5.2
 sqlparse==0.4.4
 regex==2023.8.8
-pycountry==22.3.13
+pycountry==24.6.1
+xlsxwriter==3.1.9
+chardet==5.2.0
+openpyxl-stubs==0.1.25
