@@ -34,9 +34,12 @@ class PerfectFinalParser:
     
     def _clean_sql_content(self, content: str) -> str:
         """Limpia contenido SQL de forma robusta"""
-        # Reemplazos básicos
+        # Reemplazos básicos de HTML entities
         content = content.replace('&#39;', "'")
         content = content.replace('&quot;', '"')
+        content = content.replace('&amp;', '&')
+        content = content.replace('&lt;', '<')
+        content = content.replace('&gt;', '>')
         content = content.replace('\r\n', '\n')
         content = content.replace('\r', '\n')
         
