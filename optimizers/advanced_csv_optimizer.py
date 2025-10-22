@@ -209,20 +209,24 @@ class AdvancedCSVOptimizer:
     def fix_dates(self, series: pd.Series) -> pd.Series:
         """Fix date values and convert formats properly"""
         series = series.astype(str)
-        
+
         # Convert DD/MM/YYYY to YYYY-MM-DD
         series = series.apply(self._convert_date_format)
-        
+
         # Fix common invalid dates
         series = series.str.replace('1995-02-30', '1995-02-28', regex=False)
         series = series.str.replace('2023-02-30', '2023-02-28', regex=False)
         series = series.str.replace('2024-02-30', '2024-02-28', regex=False)
-        
-        # Remove obviously invalid dates
-        invalid_dates = ['invalid_date', 'ayer', 'hoy', 'mañana', 'today', 'yesterday', 
-                        'tomorrow', '0000-00-00', '9999-99-99', 'never', 'nunca']
+        series = series.str.replace('2025-02-30', '2025-02-28', regex=False)
+
+        # Remove obviously invalid dates but keep valid ones
+        invalid_dates = ['invalid_date', 'ayer', 'hoy', 'mañana', 'today', 'yesterday',
+                        'tomorrow', '0000-00-00', '9999-99-99', 'never', 'nunca', 'nan', 'NaN', 'null', 'NULL']
         series = series.replace(invalid_dates, np.nan)
-        
+
+        # Keep empty strings as NaN but don't remove valid dates
+        series = series.replace('', np.nan)
+
         return series
     
     def fix_ages(self, series: pd.Series) -> pd.Series:
