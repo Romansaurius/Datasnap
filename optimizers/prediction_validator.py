@@ -1,386 +1,358 @@
 """
-🔍 PREDICTION VALIDATOR 🔍
-Validador y refinador de predicciones para máxima precisión
-- Validación cruzada de predicciones
-- Detección de predicciones anómalas
-- Refinamiento iterativo
-- Métricas de confianza
+PREDICTION VALIDATOR
+Validador avanzado de predicciones que asegura calidad y coherencia
 """
 
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple, Any, Optional
-import warnings
-
-try:
-    from sklearn.metrics import mean_squared_error, mean_absolute_error, accuracy_score
-    from sklearn.model_selection import cross_val_score
-    from scipy import stats
-    VALIDATION_AVAILABLE = True
-except ImportError:
-    VALIDATION_AVAILABLE = False
-
-warnings.filterwarnings('ignore')
+import re
+from datetime import datetime, timedelta
 
 class PredictionValidator:
-    """Validador avanzado de predicciones"""
+    """Validador avanzado de predicciones ML"""
     
     def __init__(self):
-        self.validation_available = VALIDATION_AVAILABLE
+        self.validation_rules = {}
         self.confidence_scores = {}
-        self.validation_metrics = {}
-        self.anomaly_thresholds = {}
+        self.refinement_history = []
         
-    def validate_and_refine_predictions(self, original_df: pd.DataFrame, predicted_df: pd.DataFrame) -> pd.DataFrame:
-        """Valida y refina predicciones para máxima precisión"""
-        
-        if not self.validation_available:
-            return self._basic_validation(original_df, predicted_df)
-        
-        refined_df = predicted_df.copy()
-        
-        # 1. Validar consistencia interna
-        refined_df = self._validate_internal_consistency(refined_df)
-        
-        # 2. Detectar predicciones anómalas
-        refined_df = self._detect_anomalous_predictions(original_df, refined_df)
-        
-        # 3. Calcular métricas de confianza
-        self._calculate_confidence_scores(original_df, refined_df)
-        
-        # 4. Refinamiento iterativo
-        refined_df = self._iterative_refinement(original_df, refined_df)
-        
-        # 5. Validación final
-        refined_df = self._final_validation(refined_df)
-        
-        return refined_df
-    
-    def _validate_internal_consistency(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Valida consistencia interna entre columnas relacionadas"""
-        
-        # Validar relaciones precio-categoria
-        if 'precio' in df.columns and 'categoria' in df.columns:
-            df = self._validate_price_category_consistency(df)
-        
-        # Validar relaciones edad-salario
-        if 'edad' in df.columns and 'salario' in df.columns:
-            df = self._validate_age_salary_consistency(df)
-        
-        # Validar relaciones stock-precio
-        if 'stock' in df.columns and 'precio' in df.columns:
-            df = self._validate_stock_price_consistency(df)
-        
-        return df
-    
-    def _validate_price_category_consistency(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Valida consistencia precio-categoría"""
-        
-        # Rangos esperados por categoría
-        expected_ranges = {
-            'laptop': (400, 3000),
-            'mouse': (10, 100),
-            'teclado': (20, 200),
-            'monitor': (100, 1000),
-            'smartphone': (150, 1500),
-            'tablet': (80, 800)
+        # Reglas de validacion por tipo de dato
+        self.validation_patterns = {
+            'email': r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
+            'phone': r'^[\+]?[\d\s\-\(\)]{7,20}$',
+            'date': r'^\d{4}-\d{2}-\d{2}$',
+            'number': r'^-?\d+\.?\d*$',
+            'boolean': r'^(true|false|1|0)$',
+            'name': r'^[A-Za-z\s]{2,50}$'
         }
         
-        for idx, row in df.iterrows():
-            categoria = str(row['categoria']).lower()
-            precio = row['precio']
-            
-            if pd.notna(precio) and categoria in expected_ranges:
-                min_price, max_price = expected_ranges[categoria]
-                
-                # Si el precio está muy fuera del rango, ajustar
-                if precio < min_price * 0.5:
-                    df.loc[idx, 'precio'] = min_price
-                elif precio > max_price * 2:
-                    df.loc[idx, 'precio'] = max_price
-        
-        return df
+        # Rangos validos por tipo de campo
+        self.valid_ranges = {
+            'edad': (0, 120),
+            'salario': (0, 1000000),
+            'precio': (0, 100000),
+            'temperatura': (-50, 100),
+            'humedad': (0, 100),
+            'stock': (0, 10000)
+        }
     
-    def _validate_age_salary_consistency(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Valida consistencia edad-salario"""
+    def validate_and_refine_predictions(self, original_df: pd.DataFrame, predicted_df: pd.DataFrame) -> pd.DataFrame:
+        """Valida y refina predicciones usando multiples metodos"""
         
-        for idx, row in df.iterrows():
-            edad = row['edad']
-            salario = row['salario']
+        try:
+            refined_df = predicted_df.copy()
             
-            if pd.notna(edad) and pd.notna(salario):
-                # Salario mínimo esperado por edad
-                expected_min_salary = max(20000, (edad - 18) * 1500 + 25000)
-                expected_max_salary = min(150000, edad * 3000)
-                
-                # Ajustar si está muy fuera del rango
-                if salario < expected_min_salary * 0.7:
-                    df.loc[idx, 'salario'] = expected_min_salary
-                elif salario > expected_max_salary * 1.5:
-                    df.loc[idx, 'salario'] = expected_max_salary
-        
-        return df
+            # 1. Validacion de formato y patrones
+            refined_df = self._validate_formats(original_df, refined_df)
+            
+            # 2. Validacion de rangos y limites
+            refined_df = self._validate_ranges(refined_df)
+            
+            # 3. Validacion de consistencia entre columnas
+            refined_df = self._validate_consistency(refined_df)
+            
+            # 4. Validacion contextual basada en datos originales
+            refined_df = self._validate_context(original_df, refined_df)
+            
+            # 5. Refinamiento final basado en confianza
+            refined_df = self._refine_low_confidence_predictions(original_df, refined_df)
+            
+            return refined_df
+            
+        except Exception as e:
+            print(f"Error en validacion: {e}")
+            return predicted_df  # Devolver sin validar si hay error
     
-    def _validate_stock_price_consistency(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Valida consistencia stock-precio (relación inversa típica)"""
+    def _validate_formats(self, original_df: pd.DataFrame, predicted_df: pd.DataFrame) -> pd.DataFrame:
+        """Valida formatos de datos predichos"""
         
-        # Calcular correlación esperada
-        valid_data = df[['stock', 'precio']].dropna()
-        if len(valid_data) > 5:
-            correlation = valid_data.corr().loc['stock', 'precio']
+        for col in predicted_df.columns:
+            if col in ['_table_type']:
+                continue
             
-            # Si hay correlación negativa fuerte (productos caros = menos stock)
-            if correlation < -0.3:
-                median_stock = df['stock'].median()
-                median_price = df['precio'].median()
+            # Detectar tipo de columna basado en datos originales
+            col_type = self._detect_column_type(original_df[col] if col in original_df.columns else predicted_df[col])
+            
+            if col_type in self.validation_patterns:
+                pattern = self.validation_patterns[col_type]
                 
-                for idx, row in df.iterrows():
-                    precio = row['precio']
-                    stock = row['stock']
+                # Validar cada valor predicho
+                for idx in predicted_df.index:
+                    value = predicted_df.loc[idx, col]
                     
-                    if pd.notna(precio) and pd.notna(stock):
-                        # Ajustar stock si es inconsistente con precio
-                        if precio > median_price * 2 and stock > median_stock * 2:
-                            df.loc[idx, 'stock'] = median_stock * 0.5
-                        elif precio < median_price * 0.5 and stock < median_stock * 0.5:
-                            df.loc[idx, 'stock'] = median_stock * 2
+                    if pd.notna(value) and not re.match(pattern, str(value)):
+                        # Valor no valido, intentar corregir o marcar como baja confianza
+                        corrected_value = self._attempt_format_correction(str(value), col_type)
+                        if corrected_value:
+                            predicted_df.loc[idx, col] = corrected_value
+                            self._set_confidence(idx, col, 0.6)  # Confianza media
+                        else:
+                            # Si no se puede corregir, usar valor original si existe
+                            if col in original_df.columns and idx in original_df.index:
+                                original_value = original_df.loc[idx, col]
+                                if pd.notna(original_value):
+                                    predicted_df.loc[idx, col] = original_value
+                                    self._set_confidence(idx, col, 1.0)  # Confianza alta (original)
+                                else:
+                                    predicted_df.loc[idx, col] = pd.NA
+                                    self._set_confidence(idx, col, 0.0)  # Sin confianza
+                            else:
+                                predicted_df.loc[idx, col] = pd.NA
+                                self._set_confidence(idx, col, 0.0)
+                    else:
+                        self._set_confidence(idx, col, 0.9)  # Confianza alta para valores validos
         
-        return df
+        return predicted_df
     
-    def _detect_anomalous_predictions(self, original_df: pd.DataFrame, predicted_df: pd.DataFrame) -> pd.DataFrame:
-        """Detecta y corrige predicciones anómalas"""
-        
-        refined_df = predicted_df.copy()
+    def _validate_ranges(self, predicted_df: pd.DataFrame) -> pd.DataFrame:
+        """Valida rangos numericos"""
         
         for col in predicted_df.columns:
-            if col not in original_df.columns:
-                continue
+            col_lower = col.lower()
             
-            # Obtener datos originales válidos
-            original_valid = original_df[col].dropna()
-            if len(original_valid) < 5:
-                continue
+            # Buscar rangos aplicables
+            applicable_range = None
+            for range_key, (min_val, max_val) in self.valid_ranges.items():
+                if range_key in col_lower:
+                    applicable_range = (min_val, max_val)
+                    break
             
-            # Calcular estadísticas de referencia
-            mean_val = original_valid.mean() if original_valid.dtype in ['int64', 'float64'] else None
-            std_val = original_valid.std() if original_valid.dtype in ['int64', 'float64'] else None
-            
-            if mean_val is not None and std_val is not None:
-                # Detectar outliers en predicciones
-                predicted_values = predicted_df[col]
+            if applicable_range:
+                min_val, max_val = applicable_range
                 
-                # Z-score para detectar anomalías
-                z_scores = np.abs((predicted_values - mean_val) / std_val)
-                anomalous_mask = z_scores > 3  # Más de 3 desviaciones estándar
-                
-                if anomalous_mask.any():
-                    # Reemplazar valores anómalos con valores más conservadores
-                    for idx in predicted_df[anomalous_mask].index:
-                        if original_df.loc[idx, col] != predicted_df.loc[idx, col]:  # Solo si fue predicho
-                            # Usar percentil 75 como valor conservador
-                            conservative_value = original_valid.quantile(0.75)
-                            refined_df.loc[idx, col] = conservative_value
+                for idx in predicted_df.index:
+                    value = predicted_df.loc[idx, col]
+                    
+                    if pd.notna(value):
+                        try:
+                            numeric_value = float(value)
+                            
+                            if numeric_value < min_val or numeric_value > max_val:
+                                # Valor fuera de rango, corregir
+                                corrected_value = max(min_val, min(max_val, numeric_value))
+                                predicted_df.loc[idx, col] = corrected_value
+                                self._set_confidence(idx, col, 0.5)  # Confianza baja por correccion
+                            else:
+                                self._set_confidence(idx, col, 0.9)  # Confianza alta
+                                
+                        except (ValueError, TypeError):
+                            # No es numerico, marcar como baja confianza
+                            self._set_confidence(idx, col, 0.3)
         
-        return refined_df
+        return predicted_df
     
-    def _calculate_confidence_scores(self, original_df: pd.DataFrame, predicted_df: pd.DataFrame):
-        """Calcula métricas de confianza para las predicciones"""
+    def _validate_consistency(self, predicted_df: pd.DataFrame) -> pd.DataFrame:
+        """Valida consistencia entre columnas relacionadas"""
+        
+        # Validar edad vs fecha de nacimiento
+        age_cols = [col for col in predicted_df.columns if 'edad' in col.lower()]
+        birth_cols = [col for col in predicted_df.columns if 'nacimiento' in col.lower() or 'birth' in col.lower()]
+        
+        if age_cols and birth_cols:
+            age_col = age_cols[0]
+            birth_col = birth_cols[0]
+            
+            for idx in predicted_df.index:
+                age = predicted_df.loc[idx, age_col]
+                birth = predicted_df.loc[idx, birth_col]
+                
+                if pd.notna(age) and pd.notna(birth):
+                    try:
+                        birth_date = pd.to_datetime(birth)
+                        calculated_age = (datetime.now() - birth_date).days // 365
+                        age_value = float(age)
+                        
+                        # Si la diferencia es significativa, ajustar
+                        if abs(calculated_age - age_value) > 2:
+                            # Priorizar fecha de nacimiento si parece mas confiable
+                            if 1900 <= birth_date.year <= datetime.now().year:
+                                predicted_df.loc[idx, age_col] = calculated_age
+                                self._set_confidence(idx, age_col, 0.8)
+                            else:
+                                # Fecha invalida, mantener edad
+                                self._set_confidence(idx, age_col, 0.6)
+                                
+                    except (ValueError, TypeError):
+                        continue
+        
+        return predicted_df
+    
+    def _validate_context(self, original_df: pd.DataFrame, predicted_df: pd.DataFrame) -> pd.DataFrame:
+        """Valida predicciones basandose en contexto de datos originales"""
         
         for col in predicted_df.columns:
-            if col not in original_df.columns:
+            if col not in original_df.columns or col in ['_table_type']:
                 continue
             
-            # Identificar valores predichos vs originales
-            original_mask = original_df[col].notna()
-            predicted_mask = original_df[col].isna() & predicted_df[col].notna()
+            # Obtener distribucion de valores originales
+            original_values = original_df[col].dropna()
             
-            if not predicted_mask.any():
+            if len(original_values) == 0:
                 continue
             
-            confidence_metrics = {
-                'total_predictions': predicted_mask.sum(),
-                'prediction_ratio': predicted_mask.sum() / len(predicted_df),
-                'data_availability': original_mask.sum() / len(original_df)
+            # Para columnas categoricas, validar contra valores existentes
+            if original_values.dtype == 'object':
+                unique_original = set(original_values.unique())
+                
+                for idx in predicted_df.index:
+                    predicted_value = predicted_df.loc[idx, col]
+                    
+                    if pd.notna(predicted_value):
+                        if str(predicted_value) in unique_original:
+                            self._set_confidence(idx, col, 0.95)  # Alta confianza
+                        else:
+                            # Buscar valor similar
+                            similar_value = self._find_similar_value(str(predicted_value), unique_original)
+                            if similar_value:
+                                predicted_df.loc[idx, col] = similar_value
+                                self._set_confidence(idx, col, 0.7)
+                            else:
+                                self._set_confidence(idx, col, 0.4)  # Baja confianza
+        
+        return predicted_df
+    
+    def _refine_low_confidence_predictions(self, original_df: pd.DataFrame, predicted_df: pd.DataFrame) -> pd.DataFrame:
+        """Refina predicciones con baja confianza"""
+        
+        for (idx, col), confidence in self.confidence_scores.items():
+            if confidence < 0.5:  # Baja confianza
+                
+                # Intentar usar valor original si existe
+                if col in original_df.columns and idx in original_df.index:
+                    original_value = original_df.loc[idx, col]
+                    if pd.notna(original_value):
+                        predicted_df.loc[idx, col] = original_value
+                        self.confidence_scores[(idx, col)] = 1.0
+                        continue
+                
+                # Usar valor mas comun de la columna
+                if col in predicted_df.columns:
+                    mode_values = predicted_df[col].mode()
+                    if len(mode_values) > 0:
+                        predicted_df.loc[idx, col] = mode_values[0]
+                        self.confidence_scores[(idx, col)] = 0.6
+                    else:
+                        # Como ultimo recurso, usar NA
+                        predicted_df.loc[idx, col] = pd.NA
+                        self.confidence_scores[(idx, col)] = 0.0
+        
+        return predicted_df
+    
+    def _detect_column_type(self, series: pd.Series) -> str:
+        """Detecta el tipo de una columna"""
+        
+        sample = series.dropna().astype(str).head(20)
+        
+        if len(sample) == 0:
+            return 'unknown'
+        
+        # Contar coincidencias con patrones
+        pattern_scores = {}
+        for pattern_name, pattern in self.validation_patterns.items():
+            matches = sample.str.match(pattern, na=False).sum()
+            if matches > 0:
+                pattern_scores[pattern_name] = matches / len(sample)
+        
+        # Devolver el patron con mayor puntuacion
+        if pattern_scores:
+            return max(pattern_scores.items(), key=lambda x: x[1])[0]
+        else:
+            return 'text'
+    
+    def _attempt_format_correction(self, value: str, col_type: str) -> Optional[str]:
+        """Intenta corregir formato de un valor"""
+        
+        if col_type == 'email':
+            # Correcciones comunes de email
+            value = value.lower().strip()
+            
+            # Agregar @ si falta
+            if '@' not in value and '.' in value:
+                parts = value.split('.')
+                if len(parts) >= 2:
+                    value = f"{parts[0]}@{'.'.join(parts[1:])}"
+            
+            # Corregir dominios comunes
+            domain_fixes = {
+                'gmai.com': 'gmail.com',
+                'hotmial.com': 'hotmail.com',
+                'yahoo.co': 'yahoo.com'
             }
             
-            # Calcular métricas específicas por tipo de datos
-            if predicted_df[col].dtype in ['int64', 'float64']:
-                original_values = original_df.loc[original_mask, col]
-                
-                if len(original_values) > 1:
-                    confidence_metrics.update({
-                        'original_mean': original_values.mean(),
-                        'original_std': original_values.std(),
-                        'predicted_mean': predicted_df.loc[predicted_mask, col].mean(),
-                        'predicted_std': predicted_df.loc[predicted_mask, col].std()
-                    })
-                    
-                    # Score de confianza basado en similitud estadística
-                    mean_diff = abs(confidence_metrics['original_mean'] - confidence_metrics['predicted_mean'])
-                    std_diff = abs(confidence_metrics['original_std'] - confidence_metrics['predicted_std'])
-                    
-                    confidence_score = max(0, 1 - (mean_diff / confidence_metrics['original_mean']) - 
-                                         (std_diff / confidence_metrics['original_std']))
-                    confidence_metrics['confidence_score'] = confidence_score
+            for wrong, correct in domain_fixes.items():
+                value = value.replace(wrong, correct)
             
-            else:
-                # Para datos categóricos
-                original_values = original_df.loc[original_mask, col]
-                predicted_values = predicted_df.loc[predicted_mask, col]
-                
-                original_dist = original_values.value_counts(normalize=True)
-                predicted_dist = predicted_values.value_counts(normalize=True)
-                
-                # Similitud de distribuciones
-                common_values = set(original_dist.index) & set(predicted_dist.index)
-                if common_values:
-                    similarity = sum(min(original_dist.get(val, 0), predicted_dist.get(val, 0)) 
-                                   for val in common_values)
-                    confidence_metrics['confidence_score'] = similarity
-                else:
-                    confidence_metrics['confidence_score'] = 0.0
+            # Validar resultado
+            if re.match(self.validation_patterns['email'], value):
+                return value
+        
+        elif col_type == 'phone':
+            # Limpiar telefono
+            clean_phone = re.sub(r'[^\d\+]', '', value)
+            if 7 <= len(clean_phone.replace('+', '')) <= 15:
+                return clean_phone
+        
+        elif col_type == 'date':
+            # Intentar parsear fecha
+            try:
+                parsed_date = pd.to_datetime(value, errors='coerce')
+                if pd.notna(parsed_date):
+                    return parsed_date.strftime('%Y-%m-%d')
+            except:
+                pass
+        
+        return None
+    
+    def _find_similar_value(self, target: str, candidates: set) -> Optional[str]:
+        """Encuentra valor similar usando distancia de edicion simple"""
+        
+        target_lower = target.lower()
+        best_match = None
+        best_score = 0
+        
+        for candidate in candidates:
+            candidate_lower = str(candidate).lower()
             
-            self.confidence_scores[col] = confidence_metrics
-    
-    def _iterative_refinement(self, original_df: pd.DataFrame, predicted_df: pd.DataFrame) -> pd.DataFrame:
-        """Refinamiento iterativo de predicciones"""
-        
-        refined_df = predicted_df.copy()
-        max_iterations = 3
-        
-        for iteration in range(max_iterations):
-            previous_df = refined_df.copy()
+            # Similitud simple basada en caracteres comunes
+            common_chars = set(target_lower) & set(candidate_lower)
+            total_chars = set(target_lower) | set(candidate_lower)
             
-            # Aplicar refinamientos
-            refined_df = self._refine_based_on_correlations(original_df, refined_df)
-            refined_df = self._refine_based_on_patterns(refined_df)
-            
-            # Verificar convergencia
-            if self._check_convergence(previous_df, refined_df):
-                break
-        
-        return refined_df
-    
-    def _refine_based_on_correlations(self, original_df: pd.DataFrame, predicted_df: pd.DataFrame) -> pd.DataFrame:
-        """Refinamiento basado en correlaciones observadas"""
-        
-        refined_df = predicted_df.copy()
-        numeric_cols = predicted_df.select_dtypes(include=[np.number]).columns
-        
-        if len(numeric_cols) > 1:
-            # Calcular correlaciones en datos originales
-            original_corr = original_df[numeric_cols].corr()
-            
-            # Ajustar predicciones para mantener correlaciones
-            for col1 in numeric_cols:
-                for col2 in numeric_cols:
-                    if col1 != col2 and abs(original_corr.loc[col1, col2]) > 0.5:
-                        # Ajustar valores predichos para mantener correlación
-                        predicted_mask = original_df[col1].isna() & predicted_df[col1].notna()
-                        
-                        if predicted_mask.any():
-                            for idx in predicted_df[predicted_mask].index:
-                                if pd.notna(refined_df.loc[idx, col2]):
-                                    # Ajustar col1 basado en col2 y correlación
-                                    expected_val = (refined_df.loc[idx, col2] * 
-                                                  original_corr.loc[col1, col2] * 
-                                                  (original_df[col1].std() / original_df[col2].std()) +
-                                                  original_df[col1].mean())
-                                    
-                                    # Promedio ponderado entre predicción original y esperada
-                                    current_val = refined_df.loc[idx, col1]
-                                    refined_val = 0.7 * current_val + 0.3 * expected_val
-                                    refined_df.loc[idx, col1] = refined_val
-        
-        return refined_df
-    
-    def _refine_based_on_patterns(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Refinamiento basado en patrones detectados"""
-        
-        refined_df = df.copy()
-        
-        # Patrón: productos de la misma categoría deberían tener precios similares
-        if 'categoria' in df.columns and 'precio' in df.columns:
-            for categoria in df['categoria'].unique():
-                if pd.notna(categoria):
-                    mask = df['categoria'] == categoria
-                    precios = df.loc[mask, 'precio'].dropna()
-                    
-                    if len(precios) > 1:
-                        median_precio = precios.median()
-                        std_precio = precios.std()
-                        
-                        # Ajustar precios extremos dentro de la categoría
-                        for idx in df[mask].index:
-                            precio = df.loc[idx, 'precio']
-                            if pd.notna(precio):
-                                if abs(precio - median_precio) > 2 * std_precio:
-                                    # Ajustar hacia la mediana
-                                    adjusted_precio = 0.8 * precio + 0.2 * median_precio
-                                    refined_df.loc[idx, 'precio'] = adjusted_precio
-        
-        return refined_df
-    
-    def _check_convergence(self, previous_df: pd.DataFrame, current_df: pd.DataFrame) -> bool:
-        """Verifica si el refinamiento ha convergido"""
-        
-        numeric_cols = current_df.select_dtypes(include=[np.number]).columns
-        
-        for col in numeric_cols:
-            diff = abs(current_df[col] - previous_df[col]).mean()
-            if diff > 0.01:  # Umbral de convergencia
-                return False
-        
-        return True
-    
-    def _final_validation(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Validación final y limpieza"""
-        
-        validated_df = df.copy()
-        
-        # Validar rangos finales
-        for col in validated_df.columns:
-            if validated_df[col].dtype in ['int64', 'float64']:
-                # Eliminar valores infinitos o extremadamente grandes
-                validated_df[col] = validated_df[col].replace([np.inf, -np.inf], np.nan)
+            if total_chars:
+                similarity = len(common_chars) / len(total_chars)
                 
-                # Limitar valores extremos
-                q99 = validated_df[col].quantile(0.99)
-                q01 = validated_df[col].quantile(0.01)
-                
-                validated_df[col] = validated_df[col].clip(lower=q01, upper=q99)
+                if similarity > best_score and similarity > 0.6:
+                    best_score = similarity
+                    best_match = candidate
         
-        return validated_df
+        return best_match
     
-    def _basic_validation(self, original_df: pd.DataFrame, predicted_df: pd.DataFrame) -> pd.DataFrame:
-        """Validación básica cuando librerías avanzadas no están disponibles"""
-        
-        validated_df = predicted_df.copy()
-        
-        # Validación básica de rangos
-        for col in validated_df.columns:
-            if validated_df[col].dtype in ['int64', 'float64']:
-                # Usar estadísticas básicas de datos originales
-                original_valid = original_df[col].dropna()
-                if len(original_valid) > 0:
-                    median_val = original_valid.median()
-                    
-                    # Reemplazar valores extremos con mediana
-                    extreme_mask = (validated_df[col] > median_val * 10) | (validated_df[col] < median_val * 0.1)
-                    validated_df.loc[extreme_mask, col] = median_val
-        
-        return validated_df
+    def _set_confidence(self, idx: int, col: str, confidence: float):
+        """Establece puntuacion de confianza"""
+        self.confidence_scores[(idx, col)] = confidence
     
     def get_validation_report(self) -> Dict:
-        """Genera reporte de validación"""
+        """Genera reporte de validacion"""
+        
+        if not self.confidence_scores:
+            return {
+                'total_predictions': 0,
+                'average_confidence': 0.0,
+                'high_confidence_count': 0,
+                'low_confidence_count': 0
+            }
+        
+        confidences = list(self.confidence_scores.values())
         
         return {
-            'validation_available': self.validation_available,
-            'confidence_scores': self.confidence_scores,
-            'validation_metrics': self.validation_metrics,
-            'columns_validated': len(self.confidence_scores),
-            'average_confidence': np.mean([
-                metrics.get('confidence_score', 0) 
-                for metrics in self.confidence_scores.values()
-            ]) if self.confidence_scores else 0
+            'total_predictions': len(confidences),
+            'average_confidence': np.mean(confidences),
+            'high_confidence_count': sum(1 for c in confidences if c >= 0.8),
+            'medium_confidence_count': sum(1 for c in confidences if 0.5 <= c < 0.8),
+            'low_confidence_count': sum(1 for c in confidences if c < 0.5),
+            'confidence_distribution': {
+                'min': np.min(confidences),
+                'max': np.max(confidences),
+                'std': np.std(confidences)
+            }
         }
