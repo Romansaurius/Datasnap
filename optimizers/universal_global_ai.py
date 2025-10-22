@@ -15,6 +15,10 @@ from typing import Any, Dict, List, Tuple, Union
 from datetime import datetime
 import random
 import string
+from number_parser import parse_number, parser
+
+# Configurar el parser para español
+parser._LANGUAGE = "es"
 
 class UniversalGlobalAI:
     """IA GLOBAL UNIVERSAL que funciona con CUALQUIER archivo"""
@@ -646,7 +650,8 @@ class UniversalGlobalAI:
         return series.apply(fix_boolean)
     
     def _correct_numbers_safe(self, series: pd.Series) -> pd.Series:
-        """Corrige números sin inventar datos"""
+        """Corrige números sin inventar datos usando number_parser"""
+
         def fix_number(num):
             if pd.isna(num):
                 return num
@@ -657,19 +662,19 @@ class UniversalGlobalAI:
             if num_str.lower() in ['invalid', 'n/a', 'null', 'none', '']:
                 return pd.NA
 
-            # Si contiene letras, mantener como string
-            if re.search(r'[a-zA-Z]', num_str):
-                return num_str
-
-            # Remover caracteres no numéricos excepto punto y signo
-            num_clean = re.sub(r'[^\d\.\-]', '', num_str)
-
+            # Usar number_parser para convertir texto a números
             try:
-                result = float(num_clean)
-                # Validar rangos razonables
-                if abs(result) > 1e10:  # Números extremadamente grandes
+                parsed = parse_number(num_str)
+                if parsed is not None:
+                    return str(int(parsed)) if parsed == int(parsed) else str(parsed)
+                else:
+                    # Si no puede parsear, intentar extraer número de strings mixtos
+                    if re.search(r'[a-zA-Z]', num_str):
+                        # Extraer la parte numérica al inicio
+                        match = re.match(r'^(\d+(?:\.\d+)?)', num_str)
+                        if match:
+                            return match.group(1)
                     return pd.NA
-                return result
             except:
                 return pd.NA
 
