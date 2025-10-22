@@ -215,27 +215,67 @@ class UniversalGlobalAI:
             return pd.DataFrame({'original_data': [str(data)], 'error': [str(e)]})
     
     def _apply_global_ai(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Aplica IA GLOBAL a cualquier DataFrame"""
+        """Aplica IA GLOBAL a cualquier DataFrame usando optimización inteligente"""
         
-        # 1. LIMPIEZA UNIVERSAL
-        df = self._universal_cleaning(df)
+        try:
+            # Primero intentar optimizador avanzado con ML
+            from .advanced_ml_optimizer import AdvancedMLOptimizer
+            ml_optimizer = AdvancedMLOptimizer()
+            df_ml = ml_optimizer.optimize_with_ml(df)
+            
+            # Luego aplicar optimizador inteligente
+            from .intelligent_data_optimizer import IntelligentDataOptimizer
+            intelligent_optimizer = IntelligentDataOptimizer()
+            return intelligent_optimizer.optimize_data(df_ml)
+            
+        except Exception as e:
+            print(f"Error en optimización avanzada: {e}")
+            try:
+                # Fallback a optimizador inteligente solo
+                from .intelligent_data_optimizer import IntelligentDataOptimizer
+                intelligent_optimizer = IntelligentDataOptimizer()
+                return intelligent_optimizer.optimize_data(df)
+            except Exception as e2:
+                print(f"Error en optimización inteligente: {e2}")
+                # Fallback final a método básico
+                return self._apply_basic_optimization(df)
+    
+    def _apply_basic_optimization(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Optimización básica como fallback"""
         
-        # 2. DETECCIÓN AUTOMÁTICA DE COLUMNAS
-        df = self._auto_detect_columns(df)
-        
-        # 3. CORRECCIÓN UNIVERSAL
-        df = self._universal_correction(df)
-        
-        # 4. APLICAR CORRECCIONES CRÍTICAS
-        df = self._apply_critical_fixes(df)
-        
-        # 5. PREDICCIÓN UNIVERSAL
-        df = self._universal_prediction(df)
-        
-        # 6. OPTIMIZACIÓN UNIVERSAL
-        df = self._universal_optimization(df)
-        
-        return df
+        try:
+            # 1. LIMPIEZA UNIVERSAL
+            df = self._universal_cleaning(df)
+            
+            # 2. DETECCIÓN AUTOMÁTICA DE COLUMNAS
+            df = self._auto_detect_columns(df)
+            
+            # 3. CORRECCIÓN UNIVERSAL (sin predicción aleatoria)
+            df = self._universal_correction_safe(df)
+            
+            # 4. MANEJO SEGURO DE VALORES FALTANTES
+            df = self._safe_missing_value_handling(df)
+            
+            # 5. OPTIMIZACIÓN UNIVERSAL
+            df = self._universal_optimization(df)
+            
+            return df
+            
+        except Exception as e:
+            print(f"Error en optimización básica: {e}")
+            # Fallback mínimo: solo limpieza
+            return self._minimal_cleaning(df)
+    
+    def _minimal_cleaning(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Limpieza mínima como último recurso"""
+        try:
+            # Solo reemplazar valores obviamente nulos
+            null_values = ['', 'nan', 'null', 'none', 'n/a']
+            df = df.replace(null_values, pd.NA)
+            df = df.dropna(how='all')
+            return df.reset_index(drop=True)
+        except:
+            return df
     
     def _universal_cleaning(self, df: pd.DataFrame) -> pd.DataFrame:
         """Limpieza UNIVERSAL que funciona con CUALQUIER dato"""
@@ -293,55 +333,59 @@ class UniversalGlobalAI:
         
         return df
     
-    def _universal_correction(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Corrección UNIVERSAL basada en tipos detectados"""
+    def _universal_correction_safe(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Corrección UNIVERSAL segura sin generar datos aleatorios"""
         
         for col in df.columns:
             col_type = self.detected_column_types.get(col, 'text')
             
             if col_type == 'email':
-                df[col] = self._correct_emails(df[col])
+                df[col] = self._correct_emails_safe(df[col])
             elif col_type == 'phone':
-                df[col] = self._correct_phones(df[col])
+                df[col] = self._correct_phones_safe(df[col])
             elif col_type == 'boolean':
-                df[col] = self._correct_booleans(df[col])
-            elif col_type == 'name':
-                df[col] = self._correct_names(df[col])
+                df[col] = self._correct_booleans_safe(df[col])
             elif col_type == 'number':
-                df[col] = self._correct_numbers(df[col])
+                df[col] = self._correct_numbers_safe(df[col])
             elif col_type == 'date':
-                df[col] = self._correct_dates(df[col])
-            elif col_type == 'url':
-                df[col] = self._correct_urls(df[col])
+                df[col] = self._correct_dates_safe(df[col])
             else:
-                df[col] = self._correct_text(df[col])
+                df[col] = self._correct_text_safe(df[col])
         
         return df
     
-    def _universal_prediction(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Predicción UNIVERSAL de valores faltantes"""
+    def _safe_missing_value_handling(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Manejo seguro de valores faltantes sin inventar datos"""
         
         for col in df.columns:
             missing_count = df[col].isna().sum()
-            if missing_count == 0:
+            if missing_count == 0 or missing_count == len(df):
                 continue
             
             col_type = self.detected_column_types.get(col, 'text')
             
-            if col_type == 'email':
-                df[col] = self._predict_emails(df[col], df)
-            elif col_type == 'phone':
-                df[col] = self._predict_phones(df[col])
-            elif col_type == 'name':
-                df[col] = self._predict_names(df[col], df)
-            elif col_type == 'number':
-                df[col] = self._predict_numbers(df[col])
-            elif col_type == 'boolean':
-                df[col] = self._predict_booleans(df[col])
-            elif col_type == 'date':
-                df[col] = self._predict_dates(df[col])
-            else:
-                df[col] = self._predict_text(df[col], col_type)
+            # Solo predecir si hay suficientes datos válidos
+            valid_count = df[col].notna().sum()
+            if valid_count < 3:
+                continue
+            
+            try:
+                if col_type == 'number':
+                    # Usar mediana para números
+                    median_val = df[col].median()
+                    if pd.notna(median_val):
+                        df[col] = df[col].fillna(median_val)
+                
+                elif col_type == 'boolean':
+                    # Usar moda para booleanos
+                    mode_val = df[col].mode()
+                    if len(mode_val) > 0:
+                        df[col] = df[col].fillna(mode_val[0])
+                
+                # Para otros tipos (email, phone, text, etc.), mantener NA
+                
+            except Exception:
+                continue
         
         return df
     
@@ -523,14 +567,7 @@ class UniversalGlobalAI:
         
         return series.apply(predict_phone)
     
-    def _predict_names(self, series: pd.Series, df: pd.DataFrame) -> pd.Series:
-        """Predice nombres faltantes"""
-        def predict_name(name):
-            if pd.notna(name):
-                return name
-            return random.choice(self.default_values['names'])
-        
-        return series.apply(predict_name)
+
     
     def _predict_numbers(self, series: pd.Series) -> pd.Series:
         """Predice números faltantes"""
@@ -547,28 +584,107 @@ class UniversalGlobalAI:
         """Predice fechas faltantes"""
         return series.fillna(pd.Timestamp.now())
     
-    def _predict_text(self, series: pd.Series, col_type: str) -> pd.Series:
-        """Predice texto faltante"""
-        def predict_text(text):
-            if pd.notna(text):
-                return text
-            
-            if col_type == 'text':
-                return random.choice(self.default_values['categories'])
-            else:
-                return 'Desconocido'
-        
-        return series.apply(predict_text)
+
     
     def _apply_critical_fixes(self, df: pd.DataFrame) -> pd.DataFrame:
         """Aplica correcciones críticas específicas"""
-        try:
-            from .critical_fixes_optimizer import CriticalFixesOptimizer
-            critical_fixer = CriticalFixesOptimizer()
-            return critical_fixer.apply_critical_fixes(df)
-        except Exception as e:
-            print(f"Error aplicando correcciones críticas: {e}")
-            return df
+        # Desactivar correcciones críticas que generan datos aleatorios
+        return df
+    
+    # Métodos de corrección seguros
+    def _correct_emails_safe(self, series: pd.Series) -> pd.Series:
+        """Corrige emails sin inventar datos"""
+        def fix_email(email):
+            if pd.isna(email):
+                return email
+            
+            email = str(email).lower().strip()
+            
+            # Aplicar correcciones de dominios
+            for wrong, correct in self.universal_corrections['email_domains'].items():
+                email = email.replace(wrong, correct)
+            
+            # Solo corregir si tiene estructura básica de email
+            if '@' in email and '.' in email.split('@')[-1]:
+                return email
+            else:
+                return pd.NA  # No inventar emails
+        
+        return series.apply(fix_email)
+    
+    def _correct_phones_safe(self, series: pd.Series) -> pd.Series:
+        """Corrige teléfonos sin inventar datos"""
+        def fix_phone(phone):
+            if pd.isna(phone):
+                return phone
+            
+            phone = str(phone).strip()
+            # Limpiar caracteres no numéricos excepto +
+            phone = re.sub(r'[^\d\+]', '', phone)
+            
+            # Solo devolver si tiene longitud razonable
+            if 7 <= len(phone.replace('+', '')) <= 15:
+                return phone
+            else:
+                return pd.NA
+        
+        return series.apply(fix_phone)
+    
+    def _correct_booleans_safe(self, series: pd.Series) -> pd.Series:
+        """Corrige booleanos sin inventar datos"""
+        def fix_boolean(value):
+            if pd.isna(value):
+                return value
+            
+            value_str = str(value).lower().strip()
+            return self.universal_corrections['boolean_values'].get(value_str, pd.NA)
+        
+        return series.apply(fix_boolean)
+    
+    def _correct_numbers_safe(self, series: pd.Series) -> pd.Series:
+        """Corrige números sin inventar datos"""
+        def fix_number(num):
+            if pd.isna(num):
+                return num
+            
+            num_str = str(num).strip()
+            
+            # Manejar casos específicos
+            if num_str.lower() in ['invalid', 'n/a', 'null', 'none', '']:
+                return pd.NA
+            
+            # Remover caracteres no numéricos excepto punto y signo
+            num_clean = re.sub(r'[^\d\.\-]', '', num_str)
+            
+            try:
+                result = float(num_clean)
+                # Validar rangos razonables
+                if abs(result) > 1e10:  # Números extremadamente grandes
+                    return pd.NA
+                return result
+            except:
+                return pd.NA
+        
+        return series.apply(fix_number)
+    
+    def _correct_dates_safe(self, series: pd.Series) -> pd.Series:
+        """Corrige fechas sin inventar datos"""
+        return pd.to_datetime(series, errors='coerce')
+    
+    def _correct_text_safe(self, series: pd.Series) -> pd.Series:
+        """Corrige texto sin inventar datos"""
+        def fix_text(text):
+            if pd.isna(text):
+                return text
+            
+            text = str(text).strip()
+            
+            # Solo limpiar espacios múltiples
+            text = re.sub(r'\s+', ' ', text)
+            
+            return text if text else pd.NA
+        
+        return series.apply(fix_text)
     
     def _extract_data_from_sql(self, sql_content: str) -> pd.DataFrame:
         """Extrae datos de SQL"""
