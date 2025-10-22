@@ -597,19 +597,23 @@ class UniversalGlobalAI:
         def fix_email(email):
             if pd.isna(email):
                 return email
-            
+
             email = str(email).lower().strip()
-            
+
             # Aplicar correcciones de dominios
             for wrong, correct in self.universal_corrections['email_domains'].items():
                 email = email.replace(wrong, correct)
-            
+
+            # Agregar .com solo a emails @gmail sin .com
+            if '@gmail' in email and not email.endswith('.com'):
+                email += '.com'
+
             # Solo corregir si tiene estructura básica de email
             if '@' in email and '.' in email.split('@')[-1]:
                 return email
             else:
                 return pd.NA  # No inventar emails
-        
+
         return series.apply(fix_email)
     
     def _correct_phones_safe(self, series: pd.Series) -> pd.Series:
@@ -646,16 +650,20 @@ class UniversalGlobalAI:
         def fix_number(num):
             if pd.isna(num):
                 return num
-            
+
             num_str = str(num).strip()
-            
+
             # Manejar casos específicos
             if num_str.lower() in ['invalid', 'n/a', 'null', 'none', '']:
                 return pd.NA
-            
+
+            # Si contiene letras, mantener como string
+            if re.search(r'[a-zA-Z]', num_str):
+                return num_str
+
             # Remover caracteres no numéricos excepto punto y signo
             num_clean = re.sub(r'[^\d\.\-]', '', num_str)
-            
+
             try:
                 result = float(num_clean)
                 # Validar rangos razonables
@@ -664,7 +672,7 @@ class UniversalGlobalAI:
                 return result
             except:
                 return pd.NA
-        
+
         return series.apply(fix_number)
     
     def _correct_dates_safe(self, series: pd.Series) -> pd.Series:
