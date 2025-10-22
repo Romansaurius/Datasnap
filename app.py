@@ -33,48 +33,43 @@ class UniversalSQLParser:
             all_tables_data = {}
             content_clean = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
             
-            # Patrón mejorado para SQL más robusto
-            # Patrón mejorado para capturar mejor las estructuras SQL complejas
-            multiline_pattern = r'INSERT\s+INTO\s+`?(\w+)`?\s*(?:\(([^)]+)\))?\s+VALUES\s*([^;]+);?'
-            matches = re.finditer(multiline_pattern, content_clean, re.IGNORECASE | re.DOTALL)
+            # Limpiar caracteres HTML codificados
+            content_clean = content_clean.replace('&#39;', "'")
+            content_clean = content_clean.replace('&quot;', '"')
             
-            # Si no encuentra matches, intentar con CREATE TABLE
-            if not list(re.finditer(multiline_pattern, content_clean, re.IGNORECASE | re.DOTALL)):
-                # Buscar CREATE TABLE para extraer estructura
-                create_pattern = r'CREATE\s+TABLE\s+`?(\w+)`?\s*\(([^;]+)\);'
-                create_matches = re.finditer(create_pattern, content_clean, re.IGNORECASE | re.DOTALL)
+            # Extraer estructura de CREATE TABLE primero
+            table_structures = {}
+            create_pattern = r'CREATE\s+TABLE\s+`?(\w+)`?\s*\(([^;]+)\);'
+            create_matches = re.finditer(create_pattern, content_clean, re.IGNORECASE | re.DOTALL)
+            
+            for create_match in create_matches:
+                table_name = create_match.group(1).lower()
+                columns_def = create_match.group(2)
                 
-                for create_match in create_matches:
-                    table_name = create_match.group(1).lower()
-                    # Crear tabla vacía con estructura detectada
-                    all_tables_data[table_name] = []
+                # Extraer nombres de columnas del CREATE TABLE
+                column_lines = [line.strip() for line in columns_def.split(',')]
+                columns = []
+                for line in column_lines:
+                    if line.strip():
+                        # Extraer solo el nombre de la columna (primera palabra)
+                        col_name = line.strip().split()[0].strip('`')
+                        if col_name and not col_name.upper() in ['PRIMARY', 'FOREIGN', 'UNIQUE', 'INDEX', 'KEY', 'CONSTRAINT']:
+                            columns.append(col_name)
+                
+                table_structures[table_name] = columns
             
-            matches = re.finditer(multiline_pattern, content_clean, re.IGNORECASE | re.DOTALL)
+            # Patrón para INSERT VALUES (sin columnas explícitas)
+            insert_pattern = r'INSERT\s+INTO\s+`?(\w+)`?\s+VALUES\s*([^;]+);'
+            matches = re.finditer(insert_pattern, content_clean, re.IGNORECASE | re.DOTALL)
             
             for match in matches:
                 table_name = match.group(1).lower()
-                columns_str = match.group(2)
-                values_block = match.group(3).strip()
+                values_block = match.group(2).strip()
                 
-                # Parsear columnas - PRESERVAR NOMBRES ORIGINALES
-                if columns_str:
-                    columns = [col.strip('` ').strip() for col in columns_str.split(',')]
-                else:
-                    # Si no hay columnas explícitas, intentar extraer de CREATE TABLE
-                    create_pattern = rf'CREATE\s+TABLE\s+`?{re.escape(table_name)}`?\s*\(([^;]+)\)'
-                    create_match = re.search(create_pattern, content_clean, re.IGNORECASE | re.DOTALL)
-                    if create_match:
-                        # Extraer nombres de columnas del CREATE TABLE
-                        create_content = create_match.group(1)
-                        column_defs = [line.strip() for line in create_content.split(',')]
-                        columns = []
-                        for col_def in column_defs:
-                            # Extraer solo el nombre de la columna (primera palabra)
-                            col_name = col_def.strip().split()[0].strip('`')
-                            if col_name and not col_name.upper() in ['PRIMARY', 'FOREIGN', 'UNIQUE', 'INDEX']:
-                                columns.append(col_name)
-                    else:
-                        columns = None
+                # Usar estructura de CREATE TABLE si está disponible
+                columns = table_structures.get(table_name, None)
+                
+
                 
                 # Parsear valores con mejor manejo de comillas
                 row_pattern = r'\(([^)]+)\)'
