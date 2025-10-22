@@ -30,6 +30,7 @@ except ImportError:
     GOOGLE_AVAILABLE = False
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB limit
 CORS(app, origins=["https://datasnap.escuelarobertoarlt.com", "http://localhost"])
 
 class UniversalSQLParser:
@@ -587,7 +588,7 @@ class DataSnapUniversalAI:
                     'success': True,
                     'message': f'XLSX optimizado correctamente',
                     'archivo_optimizado': optimized_xlsx,
-                    'nombre_archivo': f'optimizado_{filename}_{int(datetime.now().timestamp())}.csv',
+                    'nombre_archivo': f'optimizado_{filename}_{int(datetime.now().timestamp())}.xlsx',
                     'estadisticas': {
                         'filas_optimizadas': xlsx_optimizer.final_rows,
                         'tipo_detectado': 'xlsx',
@@ -595,7 +596,9 @@ class DataSnapUniversalAI:
                         'optimizaciones_aplicadas': 'ADVANCED_XLSX_OPTIMIZER',
                         'version_ia': 'XLSX_v1.0'
                     },
-                    'tipo_original': 'xlsx'
+                    'tipo_original': 'xlsx',
+                    'is_binary': True,
+                    'content_type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
                 }
             elif file_type == 'json':
                 data = json.loads(content)
@@ -923,8 +926,14 @@ def upload_to_google_drive(file_content, filename, refresh_token):
 def procesar():
     try:
         data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No JSON data received'}), 400
+            
         file_content = data.get('file_content', '')
         file_name = data.get('file_name', 'archivo')
+        
+        if not file_content:
+            return jsonify({'success': False, 'error': 'No file content provided'}), 400
         
         # Handle XLSX files specially
         if file_name.lower().endswith(('.xlsx', '.xls')):
