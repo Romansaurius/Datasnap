@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Optimizador XLSX Avanzado para DataSnap IA
-Maneja archivos Excel con todos los errores posibles
+Optimizador XLSX Avanzado para DataSnap IA - Versión Mejorada
+Maneja archivos Excel con todos los errores posibles usando las mismas funciones inteligentes del CSV
 """
 
 import pandas as pd
@@ -12,6 +12,10 @@ import html
 from datetime import datetime
 from io import BytesIO, StringIO
 import base64
+from difflib import SequenceMatcher
+import pycountry
+from dateutil import parser
+import openpyxl
 
 class AdvancedXLSXOptimizer:
     """Optimizador XLSX que corrige todos los errores posibles"""
@@ -48,8 +52,7 @@ class AdvancedXLSXOptimizer:
             
         except Exception as e:
             self.corrections_applied.append(f"Error during optimization: {e}")
-            # Fallback: try to extract data from XML
-            return self.extract_from_xml(xlsx_content)
+            return f"Error: {e}"
     
     def parse_xlsx_content(self, content: str) -> pd.DataFrame:
         """Parse XLSX content with multiple strategies"""
@@ -72,58 +75,8 @@ class AdvancedXLSXOptimizer:
         except:
             pass
         
-        # Fallback: extract from XML structure
-        return self.extract_from_xml(content)
-    
-    def extract_from_xml(self, content: str) -> pd.DataFrame:
-        """Extract data from XLSX XML structure"""
-        
-        try:
-            # Extract data from XML rows
-            data = []
-            headers = []
-            
-            # Find all row elements
-            row_pattern = r'<row r="(\d+)"[^>]*>(.*?)</row>'
-            rows = re.findall(row_pattern, content, re.DOTALL)
-            
-            for row_num, row_content in rows:
-                # Extract cell values
-                cell_pattern = r'<c r="[A-Z]+\d+"[^>]*><is><t>(.*?)</t></is></c>'
-                cells = re.findall(cell_pattern, row_content)
-                
-                if row_num == '1':  # Header row
-                    headers = [cell.strip() if cell.strip() else f'col_{i+1}' for i, cell in enumerate(cells)]
-                    if not headers:  # If no headers found, infer from data patterns
-                        headers = self._infer_headers_from_data(data)
-                else:
-                    # Pad cells to match header length
-                    while len(cells) < len(headers):
-                        cells.append('')
-                    # Only add non-empty rows
-                    if any(cell.strip() for cell in cells if cell):
-                        data.append(cells[:len(headers)])
-            
-            if data:
-                # Ensure we have proper headers
-                if not headers or all(h == '' or h.startswith('col_') for h in headers):
-                    headers = self._infer_headers_from_data(data)
-                
-                # Ensure headers match data columns
-                if data and len(headers) != len(data[0]):
-                    max_cols = max(len(row) for row in data)
-                    headers = headers[:max_cols] + [f'col_{i+1}' for i in range(len(headers), max_cols)]
-                
-                df = pd.DataFrame(data, columns=headers)
-                self.corrections_applied.append("Data extracted from XML structure")
-                return df
-            else:
-                # Return empty DataFrame if no data found
-                return pd.DataFrame()
-                
-        except Exception as e:
-            self.corrections_applied.append(f"XML extraction failed: {e}")
-            return pd.DataFrame({'error': ['Failed to parse XLSX content']})
+        # Return empty DataFrame if parsing fails
+        return pd.DataFrame({'error': ['Failed to parse XLSX content']})
     
     def clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """Clean data values"""
@@ -146,46 +99,124 @@ class AdvancedXLSXOptimizer:
         return df
     
     def fix_data_types(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Fix and optimize data types based on content patterns"""
+        """Fix and optimize data types"""
         
         for col in df.columns:
-            # Analyze column content to determine type
-            col_type = self._detect_column_type(df[col], col)
+            col_lower = col.lower()
             
-            if col_type == 'email':
+            # Fix email columns
+            if any(keyword in col_lower for keyword in ['email', 'mail', 'correo']):
                 df[col] = self.fix_emails(df[col])
-            elif col_type == 'phone':
+            
+            # Fix phone columns
+            elif any(keyword in col_lower for keyword in ['phone', 'telefono', 'tel', 'contacto']):
                 df[col] = self.fix_phones(df[col])
-            elif col_type == 'date':
+            
+            # Fix date columns
+            elif any(keyword in col_lower for keyword in ['fecha', 'date', 'birth', 'nacimiento', 'contrato', 'registro']):
                 df[col] = self.fix_dates(df[col])
-            elif col_type == 'age':
+            
+            # Fix numeric columns
+            elif any(keyword in col_lower for keyword in ['edad', 'age']):
                 df[col] = self.fix_ages(df[col])
-            elif col_type == 'monetary':
+            
+            elif any(keyword in col_lower for keyword in ['salario', 'salary', 'precio', 'price', 'anual', 'cost', 'valor']):
                 df[col] = self.fix_monetary_values(df[col])
-            elif col_type == 'quantity':
+            
+            elif any(keyword in col_lower for keyword in ['stock', 'cantidad', 'qty', 'quantity']):
                 df[col] = self.fix_quantities(df[col])
-            elif col_type == 'boolean':
+            
+            # Fix boolean columns
+            elif any(keyword in col_lower for keyword in ['activo', 'active', 'enabled', 'esta', 'status']):
                 df[col] = self.fix_booleans(df[col])
-            elif col_type == 'name':
+            
+            # Fix name columns
+            elif any(keyword in col_lower for keyword in ['nombre', 'name', 'apellido', 'completo', 'student', 'customer']):
                 df[col] = self.fix_names(df[col])
-            elif col_type == 'city':
+            
+            # Fix city columns
+            elif any(keyword in col_lower for keyword in ['ciudad', 'city', 'residencia']):
                 df[col] = self.fix_cities(df[col])
+            
+            # Fix country columns
+            elif any(keyword in col_lower for keyword in ['pais', 'country', 'nation']):
+                df[col] = self.fix_countries(df[col])
+            
+            # Fix gender columns
+            elif any(keyword in col_lower for keyword in ['genero', 'gender', 'sexo']):
+                df[col] = self.fix_genders(df[col])
         
-        self.corrections_applied.append("Data types fixed and optimized based on content patterns")
+        self.corrections_applied.append("Data types fixed and optimized")
         return df
     
     def fix_emails(self, series: pd.Series) -> pd.Series:
         """Fix email addresses using smart correction"""
         series = series.astype(str)
         
-        # Smart email domain correction using similarity
+        # Apply smart email correction
         series = series.apply(self._smart_email_correction)
         
-        # Keep emails that look reasonable
-        email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
-        series = series.where(series.str.contains(email_pattern, na=False), np.nan)
-        
         return series
+    
+    def _smart_email_correction(self, email):
+        """Smart email correction without breaking valid emails"""
+        if pd.isna(email) or str(email).strip() == '':
+            return email
+        
+        email_str = str(email).lower().strip()
+        
+        # Remove mailto: prefix if present
+        if email_str.startswith('mailto:'):
+            email_str = email_str.replace('mailto:', '')
+        
+        # If email doesn't have @, add @gmail.com
+        if '@' not in email_str:
+            return f"{email_str}@gmail.com"
+        
+        # If email ends with @, add gmail.com
+        if email_str.endswith('@'):
+            return f"{email_str}gmail.com"
+        
+        # Split email into user and domain parts
+        if '@' in email_str:
+            user_part, domain_part = email_str.split('@', 1)
+            
+            # Fix common domain issues
+            if domain_part == 'gmai' or domain_part == 'gmail':
+                domain_part = 'gmail.com'
+            elif domain_part == 'yahoo' or domain_part == 'yahooo':
+                domain_part = 'yahoo.com'
+            elif domain_part == 'hotmail' or domain_part == 'hotmial':
+                domain_part = 'hotmail.com'
+            elif domain_part == 'outlook' or domain_part == 'outlok':
+                domain_part = 'outlook.com'
+            elif domain_part == 'gmailcom':  # Missing dot
+                domain_part = 'gmail.com'
+            elif domain_part == 'yahoocom':
+                domain_part = 'yahoo.com'
+            elif domain_part == 'hotmailcom':
+                domain_part = 'hotmail.com'
+            elif domain_part.endswith('.comm'):  # Extra 'm'
+                domain_part = domain_part.replace('.comm', '.com')
+            elif domain_part == 'gmai.com':
+                domain_part = 'gmail.com'
+            elif domain_part == 'yahooo.com':
+                domain_part = 'yahoo.com'
+            elif domain_part == 'hotmial.com':
+                domain_part = 'hotmail.com'
+            elif domain_part == 'outlok.com':
+                domain_part = 'outlook.com'
+            elif domain_part == 'gmial.com':
+                domain_part = 'gmail.com'
+            
+            # Reconstruct email
+            email_str = f"{user_part}@{domain_part}"
+        
+        # Final validation - if it looks like an email now, return it
+        if re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,4}$', email_str):
+            return email_str
+        
+        return email_str
     
     def fix_phones(self, series: pd.Series) -> pd.Series:
         """Fix phone numbers"""
@@ -206,21 +237,88 @@ class AdvancedXLSXOptimizer:
         """Fix date values"""
         series = series.astype(str)
         
-        # Fix common invalid dates
-        series = series.str.replace('1995-02-30', '1995-02-28', regex=False)
-        series = series.str.replace('2023-02-30', '2023-02-28', regex=False)
-        series = series.str.replace('2024-02-30', '2024-02-28', regex=False)
-        
-        # Normalize date formats
-        series = series.str.replace('2024/01/', '2024-01-', regex=False)
-        series = series.str.replace('/', '-', regex=False)
-        
-        # Remove obviously invalid dates
-        invalid_dates = ['invalid_date', 'ayer', 'hoy', 'mañana', 'today', 'yesterday', 
-                        'tomorrow', '0000-00-00', '9999-99-99', 'never', 'nunca']
-        series = series.replace(invalid_dates, np.nan)
+        # Apply smart date conversion
+        series = series.apply(self._convert_date_format)
         
         return series
+    
+    def _convert_date_format(self, date_str):
+        """Convert various date formats to YYYY-MM-DD with intelligent validation"""
+        if pd.isna(date_str) or str(date_str).strip() == '':
+            return np.nan
+        
+        date_str = str(date_str).strip()
+        
+        # Handle invalid date indicators
+        if date_str.lower() in ['nan', 'invalid_date', 'never', 'null', 'none']:
+            return np.nan
+        
+        try:
+            # Convert DD/MM/YYYY to YYYY-MM-DD
+            if re.match(r'^\\d{1,2}/\\d{1,2}/\\d{4}$', date_str):
+                parts = date_str.split('/')
+                if len(parts) == 3:
+                    day, month, year = map(int, parts)
+                    
+                    # Validate and fix invalid dates
+                    if month > 12:
+                        month = 12
+                    if month < 1:
+                        month = 1
+                    
+                    # Fix impossible days
+                    if day > 31:
+                        day = 31
+                    if day < 1:
+                        day = 1
+                    
+                    # Handle February 30/31
+                    if month == 2 and day > 29:
+                        day = 28
+                    
+                    # Handle months with 30 days
+                    if month in [4, 6, 9, 11] and day > 30:
+                        day = 30
+                    
+                    return f"{year}-{month:02d}-{day:02d}"
+            
+            # Already in YYYY-MM-DD format - validate
+            elif re.match(r'^\\d{4}-\\d{1,2}-\\d{1,2}$', date_str):
+                parts = date_str.split('-')
+                if len(parts) == 3:
+                    year, month, day = map(int, parts)
+                    
+                    # Validate and fix
+                    if month > 12:
+                        month = 12
+                    if month < 1:
+                        month = 1
+                    if day > 31:
+                        day = 31
+                    if day < 1:
+                        day = 1
+                    
+                    # Handle February
+                    if month == 2 and day > 29:
+                        day = 28
+                    
+                    # Handle months with 30 days
+                    if month in [4, 6, 9, 11] and day > 30:
+                        day = 30
+                    
+                    return f"{year}-{month:02d}-{day:02d}"
+            
+            # Try to parse with dateutil as fallback
+            try:
+                parsed_date = parser.parse(date_str, dayfirst=True)
+                return parsed_date.strftime('%Y-%m-%d')
+            except:
+                return np.nan
+                
+        except (ValueError, TypeError):
+            return np.nan
+        
+        return np.nan
     
     def fix_ages(self, series: pd.Series) -> pd.Series:
         """Fix age values"""
@@ -273,25 +371,199 @@ class AdvancedXLSXOptimizer:
         return series
     
     def fix_names(self, series: pd.Series) -> pd.Series:
-        """Fix name values"""
+        """Fix name values properly"""
         series = series.astype(str)
         
         # Remove empty names
         series = series.replace(['', '0', '1', '2', '3', '4', '5'], np.nan)
         
-        # Handle special characters properly
-        try:
-            # Proper case for names (only for ASCII characters)
-            series = series.apply(lambda x: x.title() if x.isascii() else x if pd.notna(x) else x)
-        except:
-            # Fallback if title() fails
-            pass
+        # Apply smart name correction
+        series = series.apply(self._smart_name_correction)
         
         # Fix common name issues
         series = series.str.replace(r'\\s+', ' ', regex=True)  # Multiple spaces
         series = series.str.strip()
         
         return series
+    
+    def fix_cities(self, series: pd.Series) -> pd.Series:
+        """Fix city names"""
+        series = series.astype(str)
+        
+        # Apply smart city correction
+        series = series.apply(self._smart_city_correction)
+        
+        return series
+    
+    def fix_countries(self, series: pd.Series) -> pd.Series:
+        """Fix country names intelligently"""
+        series = series.astype(str)
+        
+        # Apply smart country correction
+        series = series.apply(self._smart_country_correction)
+        
+        return series
+    
+    def fix_genders(self, series: pd.Series) -> pd.Series:
+        """Fix gender values intelligently"""
+        series = series.astype(str)
+        
+        # Apply smart gender correction
+        series = series.apply(self._smart_gender_correction)
+        
+        return series
+    
+    def _smart_name_correction(self, name):
+        """Smart name correction handling mixed cases properly"""
+        if pd.isna(name) or str(name).strip() == '':
+            return name
+        
+        name_str = str(name).strip()
+        
+        # Handle mixed case names like "ROMAN gomez" -> "Roman Gomez"
+        words = name_str.split()
+        corrected_words = []
+        
+        for word in words:
+            if word.isupper() or word.islower():
+                # Convert to proper case
+                corrected_words.append(word.capitalize())
+            else:
+                # Keep mixed case as is (might be intentional like "McDonald")
+                corrected_words.append(word)
+        
+        return ' '.join(corrected_words)
+    
+    def _smart_country_correction(self, country):
+        """Smart country correction using pycountry and similarity"""
+        if pd.isna(country) or str(country).strip() == '':
+            return country
+        
+        country_str = str(country).strip().lower()
+        
+        # Common Spanish variations
+        spanish_variations = {
+            'españa': 'España',
+            'spain': 'España', 
+            'esp': 'España',
+            'espana': 'España',
+            'spanish': 'España',
+            'es': 'España'
+        }
+        
+        if country_str in spanish_variations:
+            return spanish_variations[country_str]
+        
+        # Try to find country using pycountry
+        try:
+            # Try by name
+            try:
+                country_obj = pycountry.countries.lookup(country_str)
+                return country_obj.name
+            except:
+                pass
+            
+            # Try by alpha_2 code
+            try:
+                country_obj = pycountry.countries.get(alpha_2=country_str.upper())
+                if country_obj:
+                    return country_obj.name
+            except:
+                pass
+            
+            # Try by alpha_3 code
+            try:
+                country_obj = pycountry.countries.get(alpha_3=country_str.upper())
+                if country_obj:
+                    return country_obj.name
+            except:
+                pass
+            
+            # Fuzzy matching with common countries
+            common_countries = ['España', 'France', 'Germany', 'Italy', 'Portugal', 'United Kingdom', 'United States']
+            best_match = self._find_best_match(country_str, [c.lower() for c in common_countries])
+            if best_match:
+                return common_countries[[c.lower() for c in common_countries].index(best_match)]
+                
+        except Exception:
+            pass
+        
+        # Return capitalized version as fallback
+        return str(country).title()
+    
+    def _smart_gender_correction(self, gender):
+        """Smart gender correction"""
+        if pd.isna(gender) or str(gender).strip() == '':
+            return gender
+        
+        gender_str = str(gender).strip().lower()
+        
+        # Gender mappings
+        male_variations = ['m', 'male', 'masculino', 'hombre', 'h', 'man', 'boy', 'niño']
+        female_variations = ['f', 'female', 'femenino', 'mujer', 'woman', 'girl', 'niña']
+        
+        if gender_str in male_variations:
+            return 'Masculino'
+        elif gender_str in female_variations:
+            return 'Femenino'
+        
+        # Return original if not recognized
+        return str(gender).title()
+    
+    def _smart_city_correction(self, city):
+        """Smart city name correction using similarity matching"""
+        if pd.isna(city) or str(city).strip() == '':
+            return city
+        
+        city_str = str(city).strip().lower()
+        
+        # Common cities database for correction
+        common_cities = [
+            'madrid', 'barcelona', 'valencia', 'sevilla', 'bilbao', 'zaragoza',
+            'málaga', 'murcia', 'palma', 'córdoba', 'valladolid', 'vigo',
+            'paris', 'london', 'berlin', 'rome', 'amsterdam', 'vienna',
+            'moscow', 'beijing', 'tokyo', 'new york', 'los angeles', 'chicago',
+            'houston', 'phoenix', 'philadelphia', 'san antonio', 'san diego', 'dallas'
+        ]
+        
+        # If city is very short or truncated, try to find best match
+        if len(city_str) >= 4 and len(city_str) <= 12:
+            best_match = self._find_best_city_match(city_str, common_cities)
+            if best_match:
+                return best_match.title()
+        
+        return str(city).title()
+    
+    def _find_best_city_match(self, city: str, cities: list) -> str:
+        """Find best matching city using similarity"""
+        best_ratio = 0
+        best_match = None
+        
+        for candidate in cities:
+            # Calculate similarity ratio
+            ratio = self._similarity_ratio(city, candidate)
+            if ratio > best_ratio and ratio >= 0.7:  # 70% similarity threshold
+                best_ratio = ratio
+                best_match = candidate
+        
+        return best_match
+    
+    def _find_best_match(self, target: str, candidates: list, threshold: float = 0.6) -> str:
+        """Find best matching string using similarity"""
+        best_ratio = 0
+        best_match = None
+        
+        for candidate in candidates:
+            ratio = SequenceMatcher(None, target.lower(), candidate.lower()).ratio()
+            if ratio > best_ratio and ratio >= threshold:
+                best_ratio = ratio
+                best_match = candidate
+        
+        return best_match
+    
+    def _similarity_ratio(self, str1: str, str2: str) -> float:
+        """Calculate similarity ratio between two strings"""
+        return SequenceMatcher(None, str1, str2).ratio()
     
     def validate_and_correct_values(self, df: pd.DataFrame) -> pd.DataFrame:
         """Additional validation and corrections"""
@@ -349,219 +621,3 @@ class AdvancedXLSXOptimizer:
             summary += f"  + {correction}\\n"
         
         return summary
-    
-    def _infer_headers_from_data(self, data: list) -> list:
-        """Infer headers from data patterns"""
-        if not data or not data[0]:
-            return ['col_1']
-        
-        headers = []
-        for i, sample_value in enumerate(data[0]):
-            header = self._infer_column_name(sample_value, i, data)
-            headers.append(header)
-        
-        return headers
-    
-    def _infer_column_name(self, sample_value: str, col_index: int, data: list) -> str:
-        """Infer column name from sample data"""
-        # Analyze all values in this column
-        col_values = [row[col_index] if col_index < len(row) else '' for row in data]
-        
-        # Check patterns
-        if self._is_email_pattern(col_values):
-            return 'email'
-        elif self._is_id_pattern(col_values):
-            return 'id'
-        elif self._is_price_pattern(col_values):
-            return 'precio'
-        elif self._is_name_pattern(col_values):
-            return 'nombre'
-        elif self._is_date_pattern(col_values):
-            return 'fecha'
-        elif self._is_phone_pattern(col_values):
-            return 'telefono'
-        elif self._is_quantity_pattern(col_values):
-            return 'cantidad'
-        elif self._is_boolean_pattern(col_values):
-            return 'activo'
-        else:
-            return f'col_{col_index + 1}'
-    
-    def _detect_column_type(self, series: pd.Series, col_name: str) -> str:
-        """Detect column type based on content and name patterns"""
-        col_lower = col_name.lower()
-        sample_values = series.dropna().astype(str).head(10).tolist()
-        
-        # Name-based detection
-        if any(keyword in col_lower for keyword in ['email', 'mail', 'correo']):
-            return 'email'
-        elif any(keyword in col_lower for keyword in ['phone', 'telefono', 'tel', 'celular']):
-            return 'phone'
-        elif any(keyword in col_lower for keyword in ['fecha', 'date', 'birth', 'nacimiento']):
-            return 'date'
-        elif any(keyword in col_lower for keyword in ['edad', 'age', 'años']):
-            return 'age'
-        elif any(keyword in col_lower for keyword in ['precio', 'price', 'cost', 'salario', 'salary']):
-            return 'monetary'
-        elif any(keyword in col_lower for keyword in ['stock', 'cantidad', 'qty', 'inventory']):
-            return 'quantity'
-        elif any(keyword in col_lower for keyword in ['activo', 'active', 'enabled', 'status']):
-            return 'boolean'
-        elif any(keyword in col_lower for keyword in ['nombre', 'name', 'usuario', 'user']):
-            return 'name'
-        elif any(keyword in col_lower for keyword in ['ciudad', 'city', 'location', 'lugar']):
-            return 'city'
-        
-        # Content-based detection
-        if self._is_email_pattern(sample_values):
-            return 'email'
-        elif self._is_price_pattern(sample_values):
-            return 'monetary'
-        elif self._is_date_pattern(sample_values):
-            return 'date'
-        elif self._is_phone_pattern(sample_values):
-            return 'phone'
-        elif self._is_boolean_pattern(sample_values):
-            return 'boolean'
-        elif self._is_quantity_pattern(sample_values):
-            return 'quantity'
-        
-        return 'text'
-    
-    def _is_email_pattern(self, values: list) -> bool:
-        """Check if values match email pattern"""
-        email_count = sum(1 for v in values if '@' in str(v) and '.' in str(v))
-        return email_count > len(values) * 0.5
-    
-    def _is_id_pattern(self, values: list) -> bool:
-        """Check if values match ID pattern"""
-        try:
-            numeric_count = sum(1 for v in values if str(v).isdigit())
-            return numeric_count > len(values) * 0.8
-        except:
-            return False
-    
-    def _is_price_pattern(self, values: list) -> bool:
-        """Check if values match price pattern"""
-        price_indicators = ['$', '€', '£', '.', ',']
-        price_count = sum(1 for v in values if any(indicator in str(v) for indicator in price_indicators))
-        return price_count > len(values) * 0.5
-    
-    def _is_name_pattern(self, values: list) -> bool:
-        """Check if values match name pattern"""
-        name_count = sum(1 for v in values if len(str(v).split()) >= 2 and str(v).replace(' ', '').isalpha())
-        return name_count > len(values) * 0.5
-    
-    def _is_date_pattern(self, values: list) -> bool:
-        """Check if values match date pattern"""
-        date_indicators = ['-', '/', '2024', '2023', '2022', '2021', '2020']
-        date_count = sum(1 for v in values if any(indicator in str(v) for indicator in date_indicators))
-        return date_count > len(values) * 0.5
-    
-    def _is_phone_pattern(self, values: list) -> bool:
-        """Check if values match phone pattern"""
-        phone_indicators = ['+', '-', '(', ')', ' ']
-        phone_count = sum(1 for v in values if any(indicator in str(v) for indicator in phone_indicators) and len(str(v)) > 7)
-        return phone_count > len(values) * 0.5
-    
-    def _is_quantity_pattern(self, values: list) -> bool:
-        """Check if values match quantity pattern"""
-        try:
-            numeric_count = sum(1 for v in values if str(v).replace('-', '').isdigit())
-            return numeric_count > len(values) * 0.7
-        except:
-            return False
-    
-    def _is_boolean_pattern(self, values: list) -> bool:
-        """Check if values match boolean pattern"""
-        bool_values = ['true', 'false', 'si', 'no', '1', '0', 'yes', 'activo', 'inactivo']
-        bool_count = sum(1 for v in values if str(v).lower() in bool_values)
-        return bool_count > len(values) * 0.7
-    
-    def _smart_email_correction(self, email):
-        """Smart email correction using similarity matching"""
-        if pd.isna(email) or str(email).strip() == '':
-            return email
-        
-        email_str = str(email).lower().strip()
-        
-        if '@' not in email_str:
-            return email
-        
-        local_part, domain = email_str.split('@', 1)
-        
-        # Common domains for correction
-        common_domains = [
-            'gmail.com', 'hotmail.com', 'yahoo.com', 'outlook.com', 'live.com',
-            'icloud.com', 'aol.com', 'protonmail.com', 'mail.com', 'zoho.com'
-        ]
-        
-        # Find best matching domain
-        best_match = self._find_best_domain_match(domain, common_domains)
-        
-        if best_match:
-            return f"{local_part}@{best_match}"
-        
-        return email
-    
-    def _find_best_domain_match(self, domain: str, domains: list) -> str:
-        """Find best matching domain using similarity"""
-        from difflib import SequenceMatcher
-        
-        best_ratio = 0
-        best_match = None
-        
-        for candidate in domains:
-            ratio = SequenceMatcher(None, domain, candidate).ratio()
-            if ratio > best_ratio and ratio >= 0.6:  # 60% similarity threshold
-                best_ratio = ratio
-                best_match = candidate
-        
-        return best_match
-    
-    def fix_cities(self, series: pd.Series) -> pd.Series:
-        """Fix city names using smart correction"""
-        series = series.astype(str)
-        
-        # Apply smart city correction
-        series = series.apply(self._smart_city_correction)
-        
-        return series
-    
-    def _smart_city_correction(self, city):
-        """Smart city name correction using similarity matching"""
-        if pd.isna(city) or str(city).strip() == '':
-            return city
-        
-        city_str = str(city).strip().lower()
-        
-        # Common cities for correction
-        common_cities = [
-            'madrid', 'barcelona', 'valencia', 'sevilla', 'bilbao', 'zaragoza',
-            'málaga', 'murcia', 'palma', 'córdoba', 'valladolid', 'vigo',
-            'paris', 'london', 'berlin', 'rome', 'amsterdam', 'vienna',
-            'moscow', 'beijing', 'tokyo', 'new york', 'los angeles', 'chicago'
-        ]
-        
-        # If city seems truncated, try to find best match
-        if len(city_str) >= 4 and len(city_str) <= 12:
-            best_match = self._find_best_city_match(city_str, common_cities)
-            if best_match:
-                return best_match.title()
-        
-        return str(city).title()
-    
-    def _find_best_city_match(self, city: str, cities: list) -> str:
-        """Find best matching city using similarity"""
-        from difflib import SequenceMatcher
-        
-        best_ratio = 0
-        best_match = None
-        
-        for candidate in cities:
-            ratio = SequenceMatcher(None, city, candidate).ratio()
-            if ratio > best_ratio and ratio >= 0.7:  # 70% similarity threshold
-                best_ratio = ratio
-                best_match = candidate
-        
-        return best_match
