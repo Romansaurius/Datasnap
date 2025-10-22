@@ -195,8 +195,9 @@ class FixedDynamicSQLOptimizer:
                     else:
                         cleaned_row.append(value)
                 
-                # Only keep rows that aren't completely empty
-                if any(v is not None and str(v).strip() for v in cleaned_row):
+                # Only keep rows that aren't completely empty or mostly NULL
+                non_null_count = sum(1 for v in cleaned_row if v is not None and str(v).strip() not in ['', 'NULL'])
+                if non_null_count >= 2:  # Al menos 2 campos válidos
                     cleaned_data.append(cleaned_row)
             
             # Remove duplicates
@@ -255,12 +256,12 @@ class FixedDynamicSQLOptimizer:
             except:
                 return None
         
-        # Stock/Quantity cleaning
-        elif 'stock' in col_name or 'cantidad' in col_name:
+        # Stock/Quantity cleaning (incluye numero_camas)
+        elif 'stock' in col_name or 'cantidad' in col_name or 'numero' in col_name:
             try:
                 stock = int(float(value_str))
                 if stock < 0:
-                    return None
+                    return abs(stock)  # Convertir negativo a positivo
                 return stock
             except:
                 return None
