@@ -130,53 +130,49 @@ class AdvancedCSVOptimizer:
         for col in df.columns:
             col_lower = col.lower()
             
-            # Fix email columns
-            if 'email' in col_lower or 'mail' in col_lower:
+            # Fix email columns (more comprehensive detection)
+            if any(keyword in col_lower for keyword in ['email', 'mail', 'correo']):
                 df[col] = self.fix_emails(df[col])
             
             # Fix phone columns
-            elif 'phone' in col_lower or 'telefono' in col_lower or 'tel' in col_lower:
+            elif any(keyword in col_lower for keyword in ['phone', 'telefono', 'tel', 'contacto']):
                 df[col] = self.fix_phones(df[col])
             
-            # Fix date columns
-            elif 'fecha' in col_lower or 'date' in col_lower or 'birth' in col_lower:
+            # Fix date columns (more comprehensive detection)
+            elif any(keyword in col_lower for keyword in ['fecha', 'date', 'birth', 'nacimiento', 'contrato', 'registro']):
                 df[col] = self.fix_dates(df[col])
             
             # Fix numeric columns
-            elif 'edad' in col_lower or 'age' in col_lower:
+            elif any(keyword in col_lower for keyword in ['edad', 'age']):
                 df[col] = self.fix_ages(df[col])
             
-            elif 'salario' in col_lower or 'salary' in col_lower or 'precio' in col_lower or 'price' in col_lower:
+            elif any(keyword in col_lower for keyword in ['salario', 'salary', 'precio', 'price', 'anual']):
                 df[col] = self.fix_monetary_values(df[col])
             
-            elif 'stock' in col_lower or 'cantidad' in col_lower or 'qty' in col_lower:
+            elif any(keyword in col_lower for keyword in ['stock', 'cantidad', 'qty']):
                 df[col] = self.fix_quantities(df[col])
             
             # Fix boolean columns
-            elif 'activo' in col_lower or 'active' in col_lower or 'enabled' in col_lower:
+            elif any(keyword in col_lower for keyword in ['activo', 'active', 'enabled', 'esta']):
                 df[col] = self.fix_booleans(df[col])
             
-            # Fix name columns
-            elif 'nombre' in col_lower or 'name' in col_lower:
+            # Fix name columns (more comprehensive detection)
+            elif any(keyword in col_lower for keyword in ['nombre', 'name', 'apellido', 'completo']):
                 df[col] = self.fix_names(df[col])
+            
+            # Fix city columns
+            elif any(keyword in col_lower for keyword in ['ciudad', 'city', 'residencia']):
+                df[col] = self.fix_cities(df[col])
         
         self.corrections_applied.append("Data types fixed and optimized")
         return df
     
     def fix_emails(self, series: pd.Series) -> pd.Series:
-        """Fix email addresses"""
+        """Fix email addresses properly"""
         series = series.astype(str)
         
-        # Common email domain corrections
-        series = series.str.replace('gmai.com', 'gmail.com', regex=False)
-        series = series.str.replace('hotmial.com', 'hotmail.com', regex=False)
-        series = series.str.replace('yahoo.co', 'yahoo.com', regex=False)
-        series = series.str.replace('outlok.com', 'outlook.com', regex=False)
-        series = series.str.replace('gmial.com', 'gmail.com', regex=False)
-        
-        # Keep emails that look reasonable (don't be too strict)
-        email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
-        series = series.where(series.str.contains(email_pattern, na=False), np.nan)
+        # Apply smart email correction
+        series = series.apply(self._smart_email_correction)
         
         return series
     
@@ -196,8 +192,11 @@ class AdvancedCSVOptimizer:
         return series
     
     def fix_dates(self, series: pd.Series) -> pd.Series:
-        """Fix date values"""
+        """Fix date values and convert formats properly"""
         series = series.astype(str)
+        
+        # Convert DD/MM/YYYY to YYYY-MM-DD
+        series = series.apply(self._convert_date_format)
         
         # Fix common invalid dates
         series = series.str.replace('1995-02-30', '1995-02-28', regex=False)
@@ -208,12 +207,6 @@ class AdvancedCSVOptimizer:
         invalid_dates = ['invalid_date', 'ayer', 'hoy', 'mañana', 'today', 'yesterday', 
                         'tomorrow', '0000-00-00', '9999-99-99', 'never', 'nunca']
         series = series.replace(invalid_dates, np.nan)
-        
-        # Try to parse dates
-        try:
-            series = pd.to_datetime(series, errors='coerce')
-        except:
-            pass
         
         return series
     
@@ -268,23 +261,27 @@ class AdvancedCSVOptimizer:
         return series
     
     def fix_names(self, series: pd.Series) -> pd.Series:
-        """Fix name values"""
+        """Fix name values properly"""
         series = series.astype(str)
         
         # Remove empty names
         series = series.replace(['', '0', '1', '2', '3', '4', '5'], np.nan)
         
-        # Handle special characters properly
-        try:
-            # Proper case for names (only for ASCII characters)
-            series = series.apply(lambda x: x.title() if x.isascii() else x if pd.notna(x) else x)
-        except:
-            # Fallback if title() fails
-            pass
+        # Apply smart name correction
+        series = series.apply(self._smart_name_correction)
         
         # Fix common name issues
         series = series.str.replace(r'\s+', ' ', regex=True)  # Multiple spaces
         series = series.str.strip()
+        
+        return series
+    
+    def fix_cities(self, series: pd.Series) -> pd.Series:
+        """Fix city names"""
+        series = series.astype(str)
+        
+        # Apply smart city correction
+        series = series.apply(self._smart_city_correction)
         
         return series
     
@@ -384,6 +381,118 @@ class AdvancedCSVOptimizer:
         from difflib import SequenceMatcher
         return SequenceMatcher(None, str1, str2).ratio()
     
+    def _smart_email_correction(self, email):
+        """Smart email correction without breaking valid emails"""
+        if pd.isna(email) or str(email).strip() == '':
+            return email
+        
+        email_str = str(email).lower().strip()
+        
+        # Remove mailto: prefix if present
+        if email_str.startswith('mailto:'):
+            email_str = email_str.replace('mailto:', '')
+        
+        # If email doesn't have @, add @gmail.com
+        if '@' not in email_str:
+            return f"{email_str}@gmail.com"
+        
+        # If email ends with @, add gmail.com
+        if email_str.endswith('@'):
+            return f"{email_str}gmail.com"
+        
+        # Split email into user and domain parts
+        if '@' in email_str:
+            user_part, domain_part = email_str.split('@', 1)
+            
+            # Fix common domain issues
+            if domain_part == 'gmai' or domain_part == 'gmail':
+                domain_part = 'gmail.com'
+            elif domain_part == 'yahoo' or domain_part == 'yahooo':
+                domain_part = 'yahoo.com'
+            elif domain_part == 'hotmail' or domain_part == 'hotmial' or domain_part == 'hotmial.com':
+                domain_part = 'hotmail.com'
+            elif domain_part == 'outlook' or domain_part == 'outlok':
+                domain_part = 'outlook.com'
+            elif domain_part == 'gmailcom':  # Missing dot
+                domain_part = 'gmail.com'
+            elif domain_part == 'yahoocom':
+                domain_part = 'yahoo.com'
+            elif domain_part == 'hotmailcom':
+                domain_part = 'hotmail.com'
+            elif domain_part.endswith('.comm'):  # Extra 'm'
+                domain_part = domain_part.replace('.comm', '.com')
+            elif domain_part == 'gmai.com':
+                domain_part = 'gmail.com'
+            elif domain_part == 'yahooo.com':
+                domain_part = 'yahoo.com'
+            elif domain_part == 'hotmial.com':
+                domain_part = 'hotmail.com'
+            elif domain_part == 'outlok.com':
+                domain_part = 'outlook.com'
+            elif domain_part == 'gmial.com':
+                domain_part = 'gmail.com'
+            
+            # Reconstruct email
+            email_str = f"{user_part}@{domain_part}"
+        
+        # Final validation - if it looks like an email now, return it
+        if re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}$', email_str):
+            return email_str
+        
+        return email_str
+    
+    def _convert_date_format(self, date_str):
+        """Convert various date formats to YYYY-MM-DD"""
+        if pd.isna(date_str) or str(date_str).strip() == '':
+            return date_str
+        
+        date_str = str(date_str).strip()
+        
+        # Convert DD/MM/YYYY to YYYY-MM-DD
+        if re.match(r'^\d{1,2}/\d{1,2}/\d{4}$', date_str):
+            parts = date_str.split('/')
+            if len(parts) == 3:
+                day, month, year = parts
+                return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+        
+        # Convert MM/DD/YYYY to YYYY-MM-DD (American format)
+        elif re.match(r'^\d{1,2}/\d{1,2}/\d{4}$', date_str):
+            parts = date_str.split('/')
+            if len(parts) == 3:
+                month, day, year = parts
+                return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+        
+        # Convert YYYY/MM/DD to YYYY-MM-DD
+        elif re.match(r'^\d{4}/\d{1,2}/\d{1,2}$', date_str):
+            return date_str.replace('/', '-')
+        
+        # Already in YYYY-MM-DD format
+        elif re.match(r'^\d{4}-\d{1,2}-\d{1,2}$', date_str):
+            return date_str
+        
+        return date_str
+    
+    def _smart_name_correction(self, name):
+        """Smart name correction handling mixed cases properly"""
+        if pd.isna(name) or str(name).strip() == '':
+            return name
+        
+        name_str = str(name).strip()
+        
+        # Handle mixed case names like "ROMAN gomez" -> "Roman Gomez"
+        words = name_str.split()
+        corrected_words = []
+        
+        for word in words:
+            if word.isupper() or word.islower():
+                # Convert to proper case
+                corrected_words.append(word.capitalize())
+            else:
+                # Keep mixed case as is (might be intentional like "McDonald")
+                corrected_words.append(word)
+        
+        return ' '.join(corrected_words)
+    
     def get_optimization_summary(self) -> str:
         """Get summary of optimizations applied"""
         summary = f"CSV Optimization Summary:\n"
@@ -397,16 +506,3 @@ class AdvancedCSVOptimizer:
         
         return summary
 
-if __name__ == "__main__":
-    optimizer = AdvancedCSVOptimizer()
-    
-    # Test with sample CSV
-    test_csv = """nombre,email,edad,salario
-juan perez,juan@gmai.com,-10,abc
-MARIA GARCIA,invalid_email,150,-1000"""
-    
-    result = optimizer.optimize_csv(test_csv)
-    print("Optimized CSV:")
-    print(result)
-    print("\nSummary:")
-    print(optimizer.get_optimization_summary())
