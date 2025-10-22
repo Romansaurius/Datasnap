@@ -32,6 +32,12 @@ class AdvancedXLSXOptimizer:
             # 1. Parse XLSX content
             df = self.parse_xlsx_content(xlsx_content)
             
+            # Check if parsing failed
+            if 'error' in df.columns:
+                error_msg = df['error'].iloc[0] if len(df) > 0 else "Unknown parsing error"
+                print(f"[XLSX ERROR] Parsing failed: {error_msg}")
+                return f"Error parsing XLSX: {error_msg}"
+            
             # 2. Clean and optimize data
             df = self.clean_data(df)
             
@@ -48,9 +54,13 @@ class AdvancedXLSXOptimizer:
             df = self.normalize_column_names(df)
             
             # Return as CSV since XLSX generation is complex
-            return df.to_csv(index=False, encoding='utf-8')
+            result = df.to_csv(index=False, encoding='utf-8')
+            return result
             
         except Exception as e:
+            print(f"[XLSX ERROR] Exception during optimization: {str(e)}")
+            import traceback
+            print(f"[XLSX ERROR] Traceback: {traceback.format_exc()}")
             self.corrections_applied.append(f"Error during optimization: {e}")
             return f"Error: {e}"
     
