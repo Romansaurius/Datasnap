@@ -10,7 +10,7 @@ import html
 import pandas as pd
 from typing import Dict, Any
 from optimizers.advanced_csv_optimizer import AdvancedCSVOptimizer
-from optimizers.dynamic_sql_optimizer import DynamicSQLOptimizer
+from optimizers.fixed_dynamic_sql_optimizer import FixedDynamicSQLOptimizer
 
 class FinalIntegratedOptimizer:
     """Optimizador final que integra todas las correcciones"""
@@ -18,7 +18,7 @@ class FinalIntegratedOptimizer:
     def __init__(self):
         self.corrections_applied = []
         self.csv_optimizer = AdvancedCSVOptimizer()
-        self.sql_optimizer = DynamicSQLOptimizer()
+        self.sql_optimizer = FixedDynamicSQLOptimizer()
     
     def optimize_sql(self, sql_content: str) -> str:
         """Optimización SQL dinámica completa"""
