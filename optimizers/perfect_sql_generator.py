@@ -29,32 +29,42 @@ class PerfectSQLGenerator:
             return self._generate_fallback_sql(df)
     
     def _generate_normalized_sql(self, df: pd.DataFrame) -> str:
-        """Genera SQL normalizado (1NF, 2NF, 3NF)"""
+        """Genera SQL normalizado perfecto (1NF, 2NF, 3NF)"""
         
         sql_parts = []
         sql_parts.append("-- Base de datos normalizada automaticamente por DataSnap IA")
-        sql_parts.append("-- Aplicando reglas 1NF, 2NF y 3NF")
+        sql_parts.append("-- Aplicando reglas 1NF, 2NF y 3NF de forma inteligente")
         sql_parts.append("")
         
-        if '_table_type' in df.columns:
-            # Procesar cada tabla por separado
-            tables = df['_table_type'].unique()
-            
-            for table_name in tables:
-                table_df = df[df['_table_type'] == table_name].drop('_table_type', axis=1)
-                normalized_tables = self._normalize_table(table_df, table_name)
+        try:
+            if '_table_type' in df.columns:
+                # Procesar cada tabla por separado
+                tables = df['_table_type'].unique()
                 
+                for table_name in tables:
+                    table_df = df[df['_table_type'] == table_name].drop('_table_type', axis=1)
+                    
+                    if not table_df.empty:
+                        normalized_tables = self._normalize_table(table_df, table_name)
+                        
+                        # Generar SQL para cada tabla normalizada
+                        for norm_table_name, norm_df in normalized_tables.items():
+                            if not norm_df.empty:
+                                sql_parts.extend(self._generate_table_sql(norm_table_name, norm_df))
+                                sql_parts.append("")
+            else:
+                # Tabla única - aplicar normalización completa
+                normalized_tables = self._normalize_table(df, 'data_table')
                 for norm_table_name, norm_df in normalized_tables.items():
-                    sql_parts.extend(self._generate_table_sql(norm_table_name, norm_df))
-                    sql_parts.append("")
-        else:
-            # Tabla unica
-            normalized_tables = self._normalize_table(df, 'data_table')
-            for norm_table_name, norm_df in normalized_tables.items():
-                sql_parts.extend(self._generate_table_sql(norm_table_name, norm_df))
-                sql_parts.append("")
-        
-        return "\n".join(sql_parts)
+                    if not norm_df.empty:
+                        sql_parts.extend(self._generate_table_sql(norm_table_name, norm_df))
+                        sql_parts.append("")
+            
+            return "\n".join(sql_parts)
+            
+        except Exception as e:
+            print(f"Error en normalización, usando SQL estándar: {e}")
+            return self._generate_standard_sql(df)
     
     def _generate_standard_sql(self, df: pd.DataFrame) -> str:
         """Genera SQL estandar sin normalizacion"""
@@ -156,53 +166,81 @@ class PerfectSQLGenerator:
         return 'id'  # Se creara automaticamente
     
     def _apply_2nf_3nf(self, df: pd.DataFrame, table_name: str, primary_key: str) -> Tuple[pd.DataFrame, Dict[str, pd.DataFrame]]:
-        """Aplica 2NF y 3NF"""
+        """Aplica 2NF y 3NF con manejo perfecto de casos complejos"""
         
         related_tables = {}
         main_df = df.copy()
         
-        # Detectar columnas que pueden formar tablas separadas
+        # Asegurar que primary_key existe
+        if primary_key not in main_df.columns:
+            main_df.insert(0, primary_key, range(1, len(main_df) + 1))
         
-        # 1. Tabla de personas/usuarios
-        person_cols = [col for col in df.columns if any(keyword in col.lower() 
-                      for keyword in ['nombre', 'email', 'edad', 'telefono', 'direccion'])]
-        if len(person_cols) >= 2:
-            person_table = df[[primary_key] + person_cols].drop_duplicates()
-            if len(person_table) < len(df):  # Solo si reduce duplicacion
-                related_tables[f'{table_name}_personas'] = person_table
-                main_df = main_df.drop(person_cols, axis=1)
+        # Obtener variables locales para evitar conflictos
+        location_cols = []
         
-        # 2. Tabla de ubicaciones
-        location_cols = [col for col in df.columns if any(keyword in col.lower() 
-                        for keyword in ['ciudad', 'estado', 'pais', 'codigo_postal', 'direccion'])]
-        if len(location_cols) >= 2:
-            location_table = df[location_cols].drop_duplicates().reset_index(drop=True)
-            if len(location_table) < len(df):
-                location_table.insert(0, 'ubicacion_id', range(1, len(location_table) + 1))
-                related_tables[f'{table_name}_ubicaciones'] = location_table
-                # En la tabla principal, reemplazar con foreign key
-                main_df = main_df.drop(location_cols, axis=1)
-                main_df['ubicacion_id'] = 1  # Simplificado para el ejemplo
+        # Normalización inteligente basada en patrones de datos
+        normalized_groups = self._detect_normalization_groups(main_df, primary_key)
         
-        # 3. Tabla de categorias/tipos
-        category_cols = [col for col in df.columns if any(keyword in col.lower() 
-                        for keyword in ['categoria', 'tipo', 'clase', 'departamento'])]
-        if category_cols:
-            for cat_col in category_cols:
-                unique_categories = df[cat_col].dropna().unique()
-                if 2 <= len(unique_categories) <= len(df) * 0.5:  # Buena cardinalidad
-                    cat_table = pd.DataFrame({
-                        f'{cat_col}_id': range(1, len(unique_categories) + 1),
-                        cat_col: unique_categories
-                    })
-                    related_tables[f'{table_name}_{cat_col}s'] = cat_table
+        for group_name, group_cols in normalized_groups.items():
+            if len(group_cols) >= 2 and all(col in main_df.columns for col in group_cols):
+                try:
+                    # Crear tabla normalizada
+                    normalized_table = main_df[[primary_key] + group_cols].drop_duplicates()
                     
-                    # Reemplazar en tabla principal
-                    cat_mapping = dict(zip(unique_categories, range(1, len(unique_categories) + 1)))
-                    main_df[f'{cat_col}_id'] = main_df[cat_col].map(cat_mapping)
-                    main_df = main_df.drop(cat_col, axis=1)
+                    # Crear tabla si tiene sentido para normalización
+                    if len(group_cols) >= 2:  # Más agresivo en la creación de tablas
+                        related_tables[f'{table_name}_{group_name}'] = normalized_table
+                        main_df = main_df.drop(group_cols, axis=1, errors='ignore')
+                except Exception as e:
+                    print(f"Warning: No se pudo normalizar grupo {group_name}: {e}")
+                    continue
         
         return main_df, related_tables
+    
+    def _detect_normalization_groups(self, df: pd.DataFrame, primary_key: str) -> Dict[str, List[str]]:
+        """Detecta grupos de columnas para normalización inteligente"""
+        
+        groups = {}
+        
+        # Grupo 1: Información personal
+        person_keywords = ['nombre', 'email', 'edad', 'telefono', 'direccion', 'salario', 'activo']
+        person_cols = [col for col in df.columns if col != primary_key and 
+                      any(keyword in col.lower() for keyword in person_keywords)]
+        if len(person_cols) >= 2:
+            groups['personas'] = person_cols
+        
+        # Grupo 2: Información de ubicación/trabajo
+        location_keywords = ['ciudad', 'departamento', 'area', 'oficina', 'pais', 'region']
+        location_cols = [col for col in df.columns if col != primary_key and 
+                        any(keyword in col.lower() for keyword in location_keywords) and 
+                        col not in person_cols]
+        if len(location_cols) >= 1:  # Más flexible
+            groups['ubicacion'] = location_cols
+        
+        # Grupo 3: Información de productos
+        product_keywords = ['precio', 'stock', 'categoria', 'descuento', 'marca', 'modelo']
+        product_cols = [col for col in df.columns if col != primary_key and 
+                       any(keyword in col.lower() for keyword in product_keywords) and 
+                       col not in person_cols and col not in location_cols]
+        if len(product_cols) >= 1:
+            groups['productos'] = product_cols
+        
+        # Grupo 4: Transacciones/Ventas
+        sales_keywords = ['cantidad', 'precio_unitario', 'fecha_venta', 'descuento_aplicado', 'total']
+        sales_cols = [col for col in df.columns if col != primary_key and 
+                     any(keyword in col.lower() for keyword in sales_keywords) and 
+                     col not in person_cols and col not in product_cols and col not in location_cols]
+        if len(sales_cols) >= 1:
+            groups['ventas'] = sales_cols
+        
+        # Grupo 5: Referencias (IDs externos)
+        ref_keywords = ['usuario_id', 'producto_id', 'cliente_id', 'categoria_id']
+        ref_cols = [col for col in df.columns if col != primary_key and 
+                   any(keyword in col.lower() for keyword in ref_keywords)]
+        if len(ref_cols) >= 1:
+            groups['referencias'] = ref_cols
+        
+        return groups
     
     def _generate_table_sql(self, table_name: str, df: pd.DataFrame) -> List[str]:
         """Genera SQL para una tabla especifica"""
