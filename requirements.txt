@@ -29,10 +29,8 @@ sqlparse==0.4.4
 xlsxwriter==3.1.9
 chardet==5.2.0
 
-# LIGHTWEIGHT NLP - SMALL MODELS ONLY
-spacy==3.7.2
-en-core-web-sm==3.7.0  # Small English model only
-es-core-news-sm==3.7.0  # Small Spanish model only
+# ULTRA-LIGHTWEIGHT NLP - COMPATIBLE WITH PYTHON 3.11
+spacy==3.7.4  # Latest version compatible with Python 3.11
 
 # ULTRA-LIGHT EMBEDDINGS - NO TORCH DEPENDENCY
 sentence-transformers==2.2.2
