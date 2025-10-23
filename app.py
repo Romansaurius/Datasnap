@@ -30,8 +30,19 @@ except ImportError:
     GOOGLE_AVAILABLE = False
 
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB limit
+app.config['MAX_CONTENT_LENGTH'] = 25 * 1024 * 1024  # 25MB limit (reducido para Render)
 CORS(app, origins=["https://datasnap.escuelarobertoarlt.com", "http://localhost"])
+
+# CONFIGURACIÓN PARA RENDER - OPTIMIZACIONES DE MEMORIA
+import os
+if os.environ.get('RENDER') or os.environ.get('RENDER_SERVICE_ID'):
+    # Limitar workers para evitar sobrecarga
+    import multiprocessing
+    workers = max(1, multiprocessing.cpu_count() // 2)
+    print(f"[RENDER] Configurado para {workers} workers")
+
+    # Configuración de timeout más agresiva
+    app.config['TIMEOUT'] = 25  # 25 segundos máximo por request
 
 class UniversalSQLParser:
     def parse(self, content: str) -> pd.DataFrame:
@@ -928,17 +939,34 @@ def upload_to_google_drive(file_content, filename, refresh_token):
 
 @app.route('/procesar', methods=['POST'])
 def procesar():
+    import signal
+    import time
+
+    def timeout_handler(signum, frame):
+        raise TimeoutError("Request timeout")
+
     try:
+        # CONFIGURACIÓN DE TIMEOUT PARA RENDER
+        timeout_seconds = 25 if (os.environ.get('RENDER') or os.environ.get('RENDER_SERVICE_ID')) else 60
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(timeout_seconds)
+
+        start_time = time.time()
+
         data = request.get_json()
         if not data:
             return jsonify({'success': False, 'error': 'No JSON data received'}), 400
-            
+
         file_content = data.get('file_content', '')
         file_name = data.get('file_name', 'archivo')
-        
+
         if not file_content:
             return jsonify({'success': False, 'error': 'No file content provided'}), 400
-        
+
+        # VALIDACIÓN DE TAMAÑO PARA RENDER
+        if os.environ.get('RENDER') and len(str(file_content)) > 15 * 1024 * 1024:  # 15MB límite en Render
+            return jsonify({'success': False, 'error': 'File too large for Render environment'}), 413
+
         # Handle XLSX files specially
         if file_name.lower().endswith(('.xlsx', '.xls')):
             # If it's base64 encoded, decode it to bytes
@@ -948,14 +976,37 @@ def procesar():
                 except Exception as decode_error:
                     print(f"[ERROR] Base64 decode failed: {decode_error}")
                     return jsonify({'success': False, 'error': f'Failed to decode XLSX file: {decode_error}'}), 400
-        
+
+        # LOGGING PARA DEBUG EN RENDER
+        processing_time = time.time() - start_time
+        print(f"[PROCESSING] Starting optimization for {file_name} ({len(str(file_content))} chars) - Time: {processing_time:.2f}s")
+
         result = universal_ai.process_any_file(file_content, file_name)
+
+        # LOGGING FINAL
+        total_time = time.time() - start_time
+        print(f"[PROCESSING] Completed optimization - Total time: {total_time:.2f}s")
+
+        # CANCELAR TIMEOUT
+        signal.alarm(0)
+
         return jsonify(result)
-        
+
+    except TimeoutError:
+        print(f"[TIMEOUT] Request exceeded {timeout_seconds} seconds")
+        return jsonify({'success': False, 'error': f'Request timeout after {timeout_seconds} seconds'}), 408
+
     except Exception as e:
         print(f"[ERROR] Exception in procesar: {str(e)}")
         import traceback
         print(f"[ERROR] Traceback: {traceback.format_exc()}")
+
+        # CANCELAR TIMEOUT EN CASO DE ERROR
+        try:
+            signal.alarm(0)
+        except:
+            pass
+
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/upload_original', methods=['POST'])
