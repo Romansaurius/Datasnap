@@ -216,21 +216,24 @@ class AdvancedXLSXOptimizer:
         return models
 
     def _initialize_nlp_processor(self):
-        """INICIALIZAR PROCESADOR NLP ULTRA-LIGERO"""
+        """INICIALIZAR PROCESADOR NLP ULTRA-LIGERO - PYTHON 3.11 COMPATIBLE"""
         if SPACY_AVAILABLE:
             try:
-                # Intentar cargar modelo español pequeño
+                # Intentar cargar modelo español pequeño (compatible con Python 3.11)
+                import spacy
                 self.nlp_es = spacy.load("es_core_news_sm")
-                print("[IA LIGHT] Procesador NLP español (sm) inicializado")
+                print("[IA LIGHT] Procesador NLP español (sm) inicializado - Python 3.11 compatible")
                 return True
-            except:
+            except Exception as e:
+                print(f"[IA WARNING] Error cargando modelo español: {e}")
                 try:
                     # Fallback a modelo inglés pequeño
                     self.nlp_en = spacy.load("en_core_web_sm")
-                    print("[IA LIGHT] Procesador NLP inglés (sm) inicializado")
+                    print("[IA LIGHT] Procesador NLP inglés (sm) inicializado - Python 3.11 compatible")
                     return True
-                except:
-                    print("[IA WARNING] No se pudo cargar modelo spaCy pequeño")
+                except Exception as e2:
+                    print(f"[IA WARNING] Error cargando modelo inglés: {e2}")
+                    print("[IA WARNING] NLP no disponible - usando solo métodos básicos")
                     return False
         return False
 
