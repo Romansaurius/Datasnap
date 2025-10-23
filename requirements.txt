@@ -23,3 +23,7 @@ xlsxwriter==3.1.9
 chardet==5.2.0
 openpyxl-stubs==0.1.25
 number-parser==0.2.1
+transformers==4.35.2
+torch==2.1.1
+spacy==3.7.2
+sentence-transformers==2.2.2
