@@ -29,8 +29,7 @@ sqlparse==0.4.4
 xlsxwriter==3.1.9
 chardet==5.2.0
 
-# ULTRA-LIGHTWEIGHT NLP - COMPATIBLE WITH PYTHON 3.11
-spacy==3.7.4  # Latest version compatible with Python 3.11
-
-# ULTRA-LIGHT EMBEDDINGS - NO TORCH DEPENDENCY
-sentence-transformers==2.2.2
+# ULTRA-LIGHTWEIGHT - MINIMAL DEPENDENCIES FOR RENDER
+# Removed: sentence-transformers (causes out of memory)
+# Removed: spacy models (too heavy for Render)
+# Keeping only essential libraries
