@@ -582,12 +582,16 @@ class DataSnapUniversalAI:
                 # Usar el optimizador XLSX avanzado directamente
                 from optimizers.advanced_xlsx_optimizer import AdvancedXLSXOptimizer
                 xlsx_optimizer = AdvancedXLSXOptimizer()
-                optimized_xlsx = xlsx_optimizer.optimize_xlsx(content)
-                
+                optimized_xlsx_bytes = xlsx_optimizer.optimize_xlsx(content)
+
+                # Convertir bytes a base64 para respuesta JSON
+                import base64
+                optimized_xlsx_base64 = base64.b64encode(optimized_xlsx_bytes).decode('utf-8')
+
                 return {
                     'success': True,
                     'message': f'XLSX optimizado correctamente',
-                    'archivo_optimizado': optimized_xlsx,
+                    'archivo_optimizado': optimized_xlsx_base64,
                     'nombre_archivo': f'optimizado_{filename}_{int(datetime.now().timestamp())}.xlsx',
                     'estadisticas': {
                         'filas_optimizadas': xlsx_optimizer.final_rows,
