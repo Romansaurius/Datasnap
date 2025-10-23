@@ -539,24 +539,6 @@ class AdvancedXLSXOptimizer:
             }
         }
 
-        # Agregar métodos de corrección para los nuevos tipos de datos
-        if detected_type == 'url':
-            df[col] = self.fix_urls(df[col])
-        elif detected_type == 'postal_code':
-            df[col] = self.fix_postal_codes(df[col])
-        elif detected_type == 'id_number':
-            df[col] = self.fix_id_numbers(df[col])
-        elif detected_type == 'percentage':
-            df[col] = self.fix_percentages(df[col])
-        elif detected_type == 'weight':
-            df[col] = self.fix_weights(df[col])
-        elif detected_type == 'height':
-            df[col] = self.fix_heights(df[col])
-
-        # APRENDIZAJE CONTINUO: Registrar la detección para mejorar futuras predicciones
-        if detected_type:
-            self.learn_from_correction(col, detected_type, df[col])
-
         for col in df.columns:
             col_lower = str(col).lower()
 
@@ -565,7 +547,20 @@ class AdvancedXLSXOptimizer:
 
             if detected_type:
                 try:
-                    if detected_type == 'email':
+                    # Agregar métodos de corrección para los nuevos tipos de datos
+                    if detected_type == 'url':
+                        df[col] = self.fix_urls(df[col])
+                    elif detected_type == 'postal_code':
+                        df[col] = self.fix_postal_codes(df[col])
+                    elif detected_type == 'id_number':
+                        df[col] = self.fix_id_numbers(df[col])
+                    elif detected_type == 'percentage':
+                        df[col] = self.fix_percentages(df[col])
+                    elif detected_type == 'weight':
+                        df[col] = self.fix_weights(df[col])
+                    elif detected_type == 'height':
+                        df[col] = self.fix_heights(df[col])
+                    elif detected_type == 'email':
                         df[col] = self.fix_emails(df[col])
                     elif detected_type == 'phone':
                         df[col] = self.fix_phones(df[col])
@@ -589,6 +584,10 @@ class AdvancedXLSXOptimizer:
                         df[col] = self.fix_genders(df[col])
                     elif detected_type == 'numeric':
                         df[col] = self.fix_numeric_values(df[col])
+
+                    # APRENDIZAJE CONTINUO: Registrar la detección para mejorar futuras predicciones
+                    self.learn_from_correction(col, detected_type, df[col])
+
                 except Exception as e:
                     print(f"[WARNING] Error fixing column {col} as {detected_type}: {e}")
                     # Continuar sin modificar la columna si hay error
