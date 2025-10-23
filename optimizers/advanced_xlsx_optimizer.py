@@ -17,21 +17,16 @@ import pycountry
 from dateutil import parser
 import openpyxl
 
-# IA UNIVERSAL - LIBRERÍAS AVANZADAS PARA DETECCIÓN INTELIGENTE
+# IA ULTRA-LIGERA PARA RENDER - SOLO LIBRERÍAS ESENCIALES
 try:
     from sklearn.feature_extraction.text import TfidfVectorizer
     from sklearn.cluster import KMeans
-    from sklearn.metrics import silhouette_score
     SKLEARN_AVAILABLE = True
 except ImportError:
     SKLEARN_AVAILABLE = False
 
-try:
-    from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
-    import torch
-    TRANSFORMERS_AVAILABLE = True
-except ImportError:
-    TRANSFORMERS_AVAILABLE = False
+# REMOVED: transformers y torch - demasiado pesados para Render
+TRANSFORMERS_AVAILABLE = False
 
 try:
     import spacy
@@ -221,34 +216,34 @@ class AdvancedXLSXOptimizer:
         return models
 
     def _initialize_nlp_processor(self):
-        """INICIALIZAR PROCESADOR NLP"""
+        """INICIALIZAR PROCESADOR NLP ULTRA-LIGERO"""
         if SPACY_AVAILABLE:
             try:
-                # Cargar modelo de spaCy para español
+                # Intentar cargar modelo español pequeño
                 self.nlp_es = spacy.load("es_core_news_sm")
-                print("[IA] Procesador NLP español inicializado")
+                print("[IA LIGHT] Procesador NLP español (sm) inicializado")
                 return True
             except:
                 try:
-                    # Fallback a modelo inglés
+                    # Fallback a modelo inglés pequeño
                     self.nlp_en = spacy.load("en_core_web_sm")
-                    print("[IA] Procesador NLP inglés inicializado")
+                    print("[IA LIGHT] Procesador NLP inglés (sm) inicializado")
                     return True
                 except:
-                    print("[IA WARNING] No se pudo cargar modelo spaCy")
+                    print("[IA WARNING] No se pudo cargar modelo spaCy pequeño")
                     return False
         return False
 
     def _initialize_embedding_model(self):
-        """INICIALIZAR MODELO DE EMBEDDINGS PARA SIMILITUD SEMÁNTICA"""
+        """INICIALIZAR MODELO DE EMBEDDINGS ULTRA-LIGERO"""
         if SENTENCE_TRANSFORMERS_AVAILABLE:
             try:
-                # Modelo ligero para embeddings
-                self.embedding_model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
-                print("[IA] Modelo de embeddings inicializado")
+                # Modelo ultra-ligero sin torch
+                self.embedding_model = SentenceTransformer('paraphrase-MiniLM-L6-v2', device='cpu')
+                print("[IA LIGHT] Modelo de embeddings ligero inicializado")
                 return True
             except Exception as e:
-                print(f"[IA WARNING] Error inicializando embeddings: {e}")
+                print(f"[IA WARNING] Error inicializando embeddings ligeros: {e}")
                 return False
         return False
     
@@ -1197,36 +1192,49 @@ class AdvancedXLSXOptimizer:
         return SequenceMatcher(None, text1.lower(), text2.lower()).ratio()
 
     def _embedding_based_detection(self, col_name: str, series: pd.Series) -> str:
-        """Clasificación usando embeddings semánticos - IA PERFECTA"""
+        """Clasificación usando embeddings semánticos - VERSIÓN ULTRA-LIGERA"""
         if not self.embedding_model:
-            print("[IA PERFECTA] ❌ Embeddings no disponibles")
+            print("[IA LIGHT] ❌ Embeddings no disponibles")
             return None
 
         try:
-            print("[IA PERFECTA] 🔍 Analizando con embeddings semánticos...")
+            print("[IA LIGHT] 🔍 Analizando con embeddings ligeros...")
 
             # Crear embeddings para el nombre de columna
-            col_embedding = self.embedding_model.encode([col_name])[0]
+            col_embedding = self.embedding_model.encode([col_name], show_progress_bar=False)[0]
 
-            # Comparar con embeddings conocidos de tipos de datos
+            # Comparar con embeddings conocidos de tipos de datos (lista reducida)
+            type_keywords = {
+                'email': ['email', 'mail', 'correo'],
+                'phone': ['phone', 'telefono', 'tel'],
+                'date': ['fecha', 'date', 'birth'],
+                'name': ['nombre', 'name', 'apellido'],
+                'city': ['ciudad', 'city', 'location'],
+                'country': ['pais', 'country', 'nation'],
+                'monetary': ['precio', 'price', 'salary'],
+                'quantity': ['cantidad', 'qty', 'stock']
+            }
+
             type_embeddings = {}
-            for data_type, config in self.knowledge_base['data_types'].items():
-                if isinstance(config, dict) and 'patterns' in config:
-                    for pattern in config['patterns'][:5]:  # Usar primeros 5 patrones para mejor precisión
-                        pattern_emb = self.embedding_model.encode([pattern])[0]
-                        similarity = np.dot(col_embedding, pattern_emb) / (np.linalg.norm(col_embedding) * np.linalg.norm(pattern_emb))
+            for data_type, keywords in type_keywords.items():
+                for keyword in keywords[:2]:  # Solo 2 keywords por tipo para velocidad
+                    try:
+                        keyword_emb = self.embedding_model.encode([keyword], show_progress_bar=False)[0]
+                        similarity = np.dot(col_embedding, keyword_emb) / (np.linalg.norm(col_embedding) * np.linalg.norm(keyword_emb))
                         type_embeddings[data_type] = max(type_embeddings.get(data_type, 0), similarity)
+                    except:
+                        continue
 
             if type_embeddings:
                 best_type = max(type_embeddings.items(), key=lambda x: x[1])
-                if best_type[1] > 0.6:  # Umbral de similitud más flexible para IA perfecta
-                    print(f"[IA PERFECTA] 🎯 Embeddings detectaron: {best_type[0]} (similitud: {best_type[1]:.3f})")
+                if best_type[1] > 0.7:  # Umbral más alto para precisión
+                    print(f"[IA LIGHT] 🎯 Embeddings detectaron: {best_type[0]} (similitud: {best_type[1]:.3f})")
                     return best_type[0]
 
-            print("[IA PERFECTA] 📊 Embeddings no encontraron coincidencia suficiente")
+            print("[IA LIGHT] 📊 Embeddings no encontraron coincidencia suficiente")
 
         except Exception as e:
-            print(f"[IA PERFECTA] ❌ Error en embeddings: {e}")
+            print(f"[IA LIGHT] ❌ Error en embeddings ligeros: {e}")
 
         return None
 
