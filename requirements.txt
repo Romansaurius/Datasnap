@@ -1,29 +1,38 @@
+# CORE DEPENDENCIES - LIGHTWEIGHT
 flask==2.3.3
 flask-cors==4.0.0
 gunicorn==21.2.0
 pandas==2.1.1
 numpy==1.24.3
-google-auth==2.23.3
-google-auth-oauthlib==1.1.0
-google-auth-httplib2==0.1.1
-google-api-python-client==2.103.0
 openpyxl==3.1.2
 xlrd==2.0.1
 python-dateutil==2.8.2
 pytz==2023.3
+
+# GOOGLE DRIVE - ONLY WHEN NEEDED
+google-auth==2.23.3
+google-auth-oauthlib==1.1.0
+google-auth-httplib2==0.1.1
+google-api-python-client==2.103.0
+
+# LIGHTWEIGHT ML - SMALL MODELS ONLY
 scikit-learn==1.3.0
 scipy==1.11.3
-fuzzywuzzy==0.18.0
-python-levenshtein==0.21.1
-rapidfuzz==3.5.2
-sqlparse==0.4.4
+
+# TEXT PROCESSING - LIGHTWEIGHT ALTERNATIVES
+rapidfuzz==3.5.2  # Faster than fuzzywuzzy
 regex==2023.8.8
 pycountry==24.6.1
+
+# UTILITIES
+sqlparse==0.4.4
 xlsxwriter==3.1.9
 chardet==5.2.0
-openpyxl-stubs==0.1.25
-number-parser==0.2.1
-transformers==4.35.2
-torch==2.1.1
+
+# LIGHTWEIGHT NLP - SMALL MODELS ONLY
 spacy==3.7.2
+en-core-web-sm==3.7.0  # Small English model only
+es-core-news-sm==3.7.0  # Small Spanish model only
+
+# ULTRA-LIGHT EMBEDDINGS - NO TORCH DEPENDENCY
 sentence-transformers==2.2.2
