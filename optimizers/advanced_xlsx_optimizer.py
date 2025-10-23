@@ -25,20 +25,10 @@ try:
 except ImportError:
     SKLEARN_AVAILABLE = False
 
-# REMOVED: transformers y torch - demasiado pesados para Render
+# DISABLED: Todas las librerías pesadas para evitar out of memory en Render
 TRANSFORMERS_AVAILABLE = False
-
-try:
-    import spacy
-    SPACY_AVAILABLE = True
-except ImportError:
-    SPACY_AVAILABLE = False
-
-try:
-    from sentence_transformers import SentenceTransformer
-    SENTENCE_TRANSFORMERS_AVAILABLE = True
-except ImportError:
-    SENTENCE_TRANSFORMERS_AVAILABLE = False
+SPACY_AVAILABLE = False
+SENTENCE_TRANSFORMERS_AVAILABLE = False
 
 class AdvancedXLSXOptimizer:
     """OPTIMIZADOR XLSX IA UNIVERSAL - DETECCIÓN INTELIGENTE CON MACHINE LEARNING"""
