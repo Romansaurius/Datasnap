@@ -599,11 +599,15 @@ class DataSnapUniversalAI:
                 import base64
                 optimized_xlsx_base64 = base64.b64encode(optimized_xlsx_bytes).decode('utf-8')
 
+                # Generar nombre de archivo preservando el original
+                original_name = filename if filename and filename != 'archivo' else 'datos'
+                optimized_filename = f'optimizado_{original_name}.xlsx'
+
                 return {
                     'success': True,
                     'message': f'XLSX optimizado correctamente',
                     'archivo_optimizado': optimized_xlsx_base64,
-                    'nombre_archivo': f'optimizado_{filename}_{int(datetime.now().timestamp())}.xlsx',
+                    'nombre_archivo': optimized_filename,
                     'estadisticas': {
                         'filas_optimizadas': xlsx_optimizer.final_rows,
                         'tipo_detectado': 'xlsx',
@@ -613,7 +617,9 @@ class DataSnapUniversalAI:
                     },
                     'tipo_original': 'xlsx',
                     'is_binary': True,
-                    'content_type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                    'content_type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    'file_size': len(optimized_xlsx_bytes),
+                    'file_signature': optimized_xlsx_bytes[:4].hex() if len(optimized_xlsx_bytes) >= 4 else 'unknown'
                 }
             elif file_type == 'json':
                 data = json.loads(content)
