@@ -925,15 +925,14 @@ def upload_to_google_drive(file_content, filename, refresh_token):
             mimetype='text/plain'
         )
         
-        file = service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id'
-        ).execute()
-        
-        drive_id = file.get('id')
-        drive_link = f"https://drive.google.com/file/d/{drive_id}/view"
-        
+       file = service.files().create(
+    body=file_metadata,
+    media_body=media,
+    fields='id, webViewLink' 
+    ).execute()
+
+    drive_id = file.get('id')
+    drive_link = file.get('webViewLink')
         return {
             'success': True,
             'drive_id': drive_id,
