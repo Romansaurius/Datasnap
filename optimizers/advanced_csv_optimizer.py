@@ -1107,41 +1107,683 @@ class AdvancedCSVOptimizer:
             return id_str
 
         return series.apply(_fix_single_id)
-def fix_percentages(self, series: pd.Series) -> pd.Series:
-    """Fix percentage values"""
-    series = series.astype(str)
 
-    def _fix_single_percentage(perc):
-        if pd.isna(perc) or str(perc).strip() == '':
-            return perc
+    def fix_percentages(self, series: pd.Series) -> pd.Series:
+        """Fix percentage values"""
+        series = series.astype(str)
 
-        perc_str = str(perc).strip()
+        def _fix_single_percentage(perc):
+            if pd.isna(perc) or str(perc).strip() == '':
+                return perc
 
-        # Remove % symbol and convert to numeric
-        perc_str = perc_str.replace('%', '').strip()
+            perc_str = str(perc).strip()
+
+            # Remove % symbol and convert to numeric
+            perc_str = perc_str.replace('%', '').strip()
+
+            try:
+                val = float(perc_str)
+                # Ensure reasonable percentage range
+                if 0 <= val <= 100:
+                    return f"{val}%"
+                else:
+                    return f"{min(100, max(0, val))}%"
+            except:
+                return perc_str
+
+        return series.apply(_fix_single_percentage)
+
+    def fix_booleans(self, series: pd.Series) -> pd.Series:
+        """Fix boolean values"""
+        series = series.astype(str).str.lower()
+
+        # Map various boolean representations
+        boolean_map = {
+            'true': True, '1': True, 'yes': True, 'si': True, 'sí': True, 'y': True,
+            'active': True, 'activo': True, 'enabled': True, 'on': True,
+            'false': False, '0': False, 'no': False, 'n': False, 'inactive': False,
+            'inactivo': False, 'disabled': False, 'off': False, 'invalid': False
+        }
+
+        series = series.map(boolean_map)
+
+        return series
+
+    def fix_names(self, series: pd.Series) -> pd.Series:
+        """Fix name values properly"""
+        series = series.astype(str)
+
+        # Remove empty names
+        series = series.replace(['', '0', '1', '2', '3', '4', '5'], np.nan)
+
+        # Apply smart name correction
+        series = series.apply(self._smart_name_correction)
+
+        # Fix common name issues
+        series = series.str.replace(r'\s+', ' ', regex=True)  # Multiple spaces
+        series = series.str.strip()
+
+        return series
+
+    def fix_cities(self, series: pd.Series) -> pd.Series:
+        """Fix city names"""
+        series = series.astype(str)
+
+        # Apply smart city correction
+        series = series.apply(self._smart_city_correction)
+
+        return series
+
+    def fix_countries(self, series: pd.Series) -> pd.Series:
+        """Fix country names intelligently"""
+        series = series.astype(str)
+
+        # Apply smart country correction
+        series = series.apply(self._smart_country_correction)
+
+        return series
+
+    def fix_genders(self, series: pd.Series) -> pd.Series:
+        """Fix gender values intelligently"""
+        series = series.astype(str)
+
+        # Apply smart gender correction
+        series = series.apply(self._smart_gender_correction)
+
+        return series
+
+    def validate_and_correct_values(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Additional validation and corrections"""
+
+        # Remove rows where all values are null
+        df = df.dropna(how='all')
+
+        self.corrections_applied.append("Values validated and corrected")
+        return df
+
+    def remove_duplicates_and_empty(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Remove duplicates and empty rows"""
+
+        initial_rows = len(df)
+
+        # Remove duplicates
+        df = df.drop_duplicates()
+
+        # Remove rows with too many null values (more than 90% null)
+        threshold = max(1, len(df.columns) * 0.1)  # Keep rows with at least 10% valid data
+        df = df.dropna(thresh=threshold)
+
+        final_rows = len(df)
+        removed_rows = initial_rows - final_rows
+
+        if removed_rows > 0:
+            self.corrections_applied.append(f"Removed {removed_rows} duplicate/empty rows")
+
+        self.final_rows = final_rows
+        return df
+
+    def normalize_column_names(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Normalize column names"""
+
+        # Clean column names
+        df.columns = df.columns.str.strip()
+        df.columns = df.columns.str.lower()
+        df.columns = df.columns.str.replace(' ', '_', regex=False)
+        df.columns = df.columns.str.replace(r'[^\w]', '_', regex=True)
+        df.columns = df.columns.str.replace(r'_+', '_', regex=True)
+        df.columns = df.columns.str.strip('_')
+
+        self.corrections_applied.append("Column names normalized")
+        return df
+
+    def _prepare_data_for_csv(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Prepare data for CSV export - MÁXIMA OPTIMIZACIÓN Y LIMPIEZA PROFUNDA"""
+
+        # Create a clean copy
+        df_clean = df.copy()
+
+        # OPTIMIZACIÓN 1: Eliminar columnas completamente vacías
+        df_clean = df_clean.dropna(axis=1, how='all')
+        if len(df_clean.columns) == 0:
+            # Si todas las columnas estaban vacías, crear una columna dummy
+            df_clean = pd.DataFrame({'datos': ['Archivo vacío procesado']})
+
+        # OPTIMIZACIÓN 2: Limpiar nombres de columnas con máxima compatibilidad
+        new_columns = []
+        for i, col in enumerate(df_clean.columns):
+            if pd.isna(col) or str(col).strip() == '' or 'Unnamed' in str(col):
+                # Usar nombres más descriptivos basados en contenido
+                sample_values = df_clean[col].dropna().head(3).astype(str)
+                if len(sample_values) > 0:
+                    # Intentar inferir tipo de columna del contenido
+                    first_val = sample_values.iloc[0]
+                    if '@' in first_val and '.' in first_val:
+                        new_columns.append(f'email_{i+1}')
+                    elif any(char.isdigit() for char in first_val) and len([c for c in first_val if c.isdigit()]) >= 7:
+                        new_columns.append(f'telefono_{i+1}')
+                    elif re.search(r'\d{1,2}[/-]\d{1,2}[/-]\d{4}', first_val):
+                        new_columns.append(f'fecha_{i+1}')
+                    else:
+                        new_columns.append(f'columna_{i+1}')
+                else:
+                    new_columns.append(f'columna_{i+1}')
+            else:
+                # Clean existing column name while preserving meaning
+                clean_name = str(col).strip()[:50]  # Limit length for CSV
+                # Replace problematic characters with underscores but keep structure
+                clean_name = re.sub(r'[^\w\sáéíóúñÁÉÍÓÚÑ]', '_', clean_name)  # Allow Spanish chars
+                clean_name = re.sub(r'\s+', '_', clean_name)  # Replace spaces with underscores
+                clean_name = re.sub(r'_+', '_', clean_name)   # Remove multiple underscores
+                clean_name = clean_name.strip('_')            # Remove leading/trailing underscores
+
+                # If cleaning removed everything, use original with safe chars only
+                if not clean_name:
+                    clean_name = re.sub(r'[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ]', '_', str(col))[:30]
+                    if not clean_name:
+                        clean_name = f'columna_{i+1}'
+
+                new_columns.append(clean_name)
+
+        # Ensure unique column names
+        final_columns = []
+        for col in new_columns:
+            if col in final_columns:
+                counter = 1
+                while f"{col}_{counter}" in final_columns:
+                    counter += 1
+                final_columns.append(f"{col}_{counter}")
+            else:
+                final_columns.append(col)
+
+        df_clean.columns = final_columns
+
+        # OPTIMIZACIÓN 3: Limpieza profunda de datos
+        for col in df_clean.columns:
+            # Convert all values to strings first
+            df_clean[col] = df_clean[col].astype(str)
+
+            # Replace various null representations
+            null_patterns = ['nan', 'NaN', 'None', 'none', 'NULL', 'null', 'N/A', 'n/a', '']
+            df_clean[col] = df_clean[col].replace(null_patterns, '')
+
+            # Remove control characters and problematic chars
+            df_clean[col] = df_clean[col].apply(lambda x: re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]', '', str(x)))
+
+            # Normalize whitespace
+            df_clean[col] = df_clean[col].str.strip()
+            df_clean[col] = df_clean[col].str.replace(r'\s+', ' ', regex=True)
+
+            # Limit string length to prevent CSV issues
+            df_clean[col] = df_clean[col].str[:32767]
+
+        # OPTIMIZACIÓN 4: Eliminar filas duplicadas inteligentes
+        # Primero intentar deduplicar por todas las columnas
+        initial_rows = len(df_clean)
+        df_clean = df_clean.drop_duplicates()
+
+        # Si hay muchas filas, hacer deduplicación más agresiva
+        if len(df_clean) > 10000:
+            # Mantener solo filas con al menos 50% de datos no vacíos
+            min_valid_data = max(1, len(df_clean.columns) // 2)
+            df_clean = df_clean.dropna(thresh=min_valid_data)
+
+        # OPTIMIZACIÓN 5: Comprimir datos numéricos donde sea posible
+        for col in df_clean.columns:
+            # Intentar convertir a numérico si parece numérico
+            if df_clean[col].astype(str).str.match(r'^[\d\s\.,-]+$').any():
+                try:
+                    # Intentar conversión numérica
+                    numeric_series = pd.to_numeric(df_clean[col].astype(str).str.replace(',', '.'), errors='coerce')
+                    if numeric_series.notna().sum() > len(numeric_series) * 0.8:  # 80% válido
+                        df_clean[col] = numeric_series
+                except:
+                    pass  # Mantener como string si falla
+
+        # OPTIMIZACIÓN 6: Eliminar filas completamente vacías al final
+        df_clean = df_clean.replace('', np.nan)
+        df_clean = df_clean.dropna(how='all')
+        df_clean = df_clean.fillna('')  # Fill remaining NaN with empty strings
+
+        final_rows = len(df_clean)
+        removed_rows = initial_rows - final_rows
+
+        self.corrections_applied.append(f"Data optimized: {removed_rows} rows removed, {len(df_clean.columns)} columns cleaned")
+
+        return df_clean
+
+    def _smart_city_correction(self, city):
+        """Smart city name correction using similarity matching"""
+        if pd.isna(city) or str(city).strip() == '':
+            return city
+
+        city_str = str(city).strip().lower()
+
+        # Common cities database for correction
+        common_cities = [
+            'madrid', 'barcelona', 'valencia', 'sevilla', 'bilbao', 'zaragoza',
+            'málaga', 'murcia', 'palma', 'córdoba', 'valladolid', 'vigo',
+            'paris', 'london', 'berlin', 'rome', 'amsterdam', 'vienna',
+            'moscow', 'beijing', 'tokyo', 'new york', 'los angeles', 'chicago',
+            'houston', 'phoenix', 'philadelphia', 'san antonio', 'san diego', 'dallas'
+        ]
+
+        # If city is very short or truncated, try to find best match
+        if len(city_str) >= 4 and len(city_str) <= 12:
+            best_match = self._find_best_city_match(city_str, common_cities)
+            if best_match:
+                return best_match.title()
+
+        return str(city).title()
+
+    def _find_best_city_match(self, city: str, cities: list) -> str:
+        """Find best matching city using similarity"""
+        best_ratio = 0
+        best_match = None
+
+        for candidate in cities:
+            # Calculate similarity ratio
+            ratio = self._similarity_ratio(city, candidate)
+            if ratio > best_ratio and ratio >= 0.7:  # 70% similarity threshold
+                best_ratio = ratio
+                best_match = candidate
+
+        return best_match
+
+    def _similarity_ratio(self, str1: str, str2: str) -> float:
+        """Calculate similarity ratio between two strings"""
+        return SequenceMatcher(None, str1, str2).ratio()
+
+    def _smart_email_correction(self, email):
+        """Smart email correction without breaking valid emails"""
+        if pd.isna(email) or str(email).strip() == '':
+            return email
+
+        email_str = str(email).lower().strip()
+
+        # Remove mailto: prefix if present
+        if email_str.startswith('mailto:'):
+            email_str = email_str.replace('mailto:', '')
+
+        # If email doesn't have @, add @gmail.com
+        if '@' not in email_str:
+            return f"{email_str}@gmail.com"
+
+        # If email ends with @, add gmail.com
+        if email_str.endswith('@'):
+            return f"{email_str}gmail.com"
+
+        # Split email into user and domain parts
+        if '@' in email_str:
+            user_part, domain_part = email_str.split('@', 1)
+
+            # Fix common domain issues
+            if domain_part == 'gmai' or domain_part == 'gmail':
+                domain_part = 'gmail.com'
+            elif domain_part == 'yahoo' or domain_part == 'yahooo':
+                domain_part = 'yahoo.com'
+            elif domain_part == 'hotmail' or domain_part == 'hotmial':
+                domain_part = 'hotmail.com'
+            elif domain_part == 'outlook' or domain_part == 'outlok':
+                domain_part = 'outlook.com'
+            elif domain_part == 'gmailcom':  # Missing dot
+                domain_part = 'gmail.com'
+            elif domain_part == 'yahoocom':
+                domain_part = 'yahoo.com'
+            elif domain_part == 'hotmailcom':
+                domain_part = 'hotmail.com'
+            elif domain_part.endswith('.comm'):  # Extra 'm'
+                domain_part = domain_part.replace('.comm', '.com')
+            elif domain_part == 'gmai.com':
+                domain_part = 'gmail.com'
+            elif domain_part == 'yahooo.com':
+                domain_part = 'yahoo.com'
+            elif domain_part == 'hotmial.com':
+                domain_part = 'hotmail.com'
+            elif domain_part == 'outlok.com':
+                domain_part = 'outlook.com'
+            elif domain_part == 'gmial.com':
+                domain_part = 'gmail.com'
+
+            # Reconstruct email
+            email_str = f"{user_part}@{domain_part}"
+
+        # Final validation - if it looks like an email now, return it
+        if re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}$', email_str):
+            return email_str
+
+        return email_str
+
+    def _smart_name_correction(self, name):
+        """Smart name correction handling mixed cases properly"""
+        if pd.isna(name) or str(name).strip() == '':
+            return name
+
+        name_str = str(name).strip()
+
+        # Handle mixed case names like "ROMAN gomez" -> "Roman Gomez"
+        words = name_str.split()
+        corrected_words = []
+
+        for word in words:
+            if word.isupper() or word.islower():
+                # Convert to proper case
+                corrected_words.append(word.capitalize())
+            else:
+                # Keep mixed case as is (might be intentional like "McDonald")
+                corrected_words.append(word)
+
+        return ' '.join(corrected_words)
+
+    def _smart_country_correction(self, country):
+        """Smart country correction using pycountry and similarity"""
+        if pd.isna(country) or str(country).strip() == '':
+            return country
+
+        country_str = str(country).strip().lower()
+
+        # Common Spanish variations
+        spanish_variations = {
+            'españa': 'España',
+            'spain': 'España',
+            'esp': 'España',
+            'espana': 'España',
+            'spanish': 'España',
+            'es': 'España'
+        }
+
+        if country_str in spanish_variations:
+            return spanish_variations[country_str]
+
+        # Try to find country using pycountry
+        try:
+            # Try by name
+            try:
+                country_obj = pycountry.countries.lookup(country_str)
+                return country_obj.name
+            except:
+                pass
+
+            # Try by alpha_2 code
+            try:
+                country_obj = pycountry.countries.get(alpha_2=country_str.upper())
+                if country_obj:
+                    return country_obj.name
+            except:
+                pass
+
+            # Try by alpha_3 code
+            try:
+                country_obj = pycountry.countries.get(alpha_3=country_str.upper())
+                if country_obj:
+                    return country_obj.name
+            except:
+                pass
+
+            # Fuzzy matching with common countries
+            common_countries = ['España', 'France', 'Germany', 'Italy', 'Portugal', 'United Kingdom', 'United States']
+            best_match = self._find_best_match(country_str, [c.lower() for c in common_countries])
+            if best_match:
+                return common_countries[[c.lower() for c in common_countries].index(best_match)]
+
+        except Exception:
+            pass
+
+        # Return capitalized version as fallback
+        return str(country).title()
+
+    def _smart_gender_correction(self, gender):
+        """Smart gender correction"""
+        if pd.isna(gender) or str(gender).strip() == '':
+            return gender
+
+        gender_str = str(gender).strip().lower()
+
+        # Gender mappings
+        male_variations = ['m', 'male', 'masculino', 'hombre', 'h', 'man', 'boy', 'niño']
+        female_variations = ['f', 'female', 'femenino', 'mujer', 'woman', 'girl', 'niña']
+
+        if gender_str in male_variations:
+            return 'Masculino'
+        elif gender_str in female_variations:
+            return 'Femenino'
+
+        # Return original if not recognized
+        return str(gender).title()
+
+    def _find_best_match(self, target: str, candidates: list, threshold: float = 0.6) -> str:
+        """Find best matching string using similarity"""
+        best_ratio = 0
+        best_match = None
+
+        for candidate in candidates:
+            ratio = SequenceMatcher(None, target.lower(), candidate.lower()).ratio()
+            if ratio > best_ratio and ratio >= threshold:
+                best_ratio = ratio
+                best_match = candidate
+
+        return best_match
+
+    def _is_date_like(self, value: str) -> bool:
+        """Check if value looks like a date"""
+        if not value or value.lower() in ['nan', 'none', 'null', '']:
+            return False
+
+        # Check for date patterns
+        date_patterns = [
+            r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}',  # DD/MM/YYYY
+            r'\d{4}[/-]\d{1,2}[/-]\d{1,2}',    # YYYY/MM/DD
+            r'\d{1,2}\s+(ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{2,4}',
+            r'\d{4}-\d{2}-\d{2}',  # ISO format
+        ]
+
+        return any(re.search(pattern, value, re.IGNORECASE) for pattern in date_patterns)
+
+    def _is_age_like(self, value: str) -> bool:
+        """Check if value looks like an age"""
+        try:
+            num = float(value)
+            return 0 <= num <= 150
+        except:
+            return False
+
+    def _is_monetary_like(self, value: str) -> bool:
+        """Check if value looks like monetary amount"""
+        if not value:
+            return False
+
+        # Check for currency symbols or decimal patterns
+        if any(char in value for char in ['$', '€', '£', '¥', '₹']):
+            return True
 
         try:
-            val = float(perc_str)
-            # Ensure reasonable percentage range
-            if 0 <= val <= 100:
-                return f"{val}%"
-            else:
-                return f"{min(100, max(0, val))}%"
+            num = float(value.replace(',', '').replace(' ', ''))
+            return num >= 0  # Monetary values are usually positive
         except:
-            return perc_str
+            return False
 
-    return series.apply(_fix_single_percentage)
+    def _is_quantity_like(self, value: str) -> bool:
+        """Check if value looks like a quantity"""
+        try:
+            num = float(value)
+            return num >= 0  # Quantities are usually non-negative
+        except:
+            return False
 
-def get_optimization_summary(self) -> str:
-    """Get summary of optimizations applied"""
-    summary = f"CSV Optimization Summary:\n"
-    summary += f"- Original rows: {self.original_rows}\n"
-    summary += f"- Final rows: {self.final_rows}\n"
-    summary += f"- Rows removed: {self.original_rows - self.final_rows}\n"
-    summary += f"- Corrections applied:\n"
+    def _is_boolean_like(self, value: str) -> bool:
+        """Check if value looks like a boolean"""
+        value_lower = value.lower().strip()
+        boolean_values = [
+            'true', 'false', '1', '0', 'yes', 'no', 'si', 'sí', 'on', 'off',
+            'active', 'inactive', 'enabled', 'disabled', 'activo', 'inactivo'
+        ]
+        return value_lower in boolean_values
 
-    for correction in self.corrections_applied:
-        summary += f"  + {correction}\n"
+    def _is_name_like(self, value: str) -> bool:
+        """Check if value looks like a name"""
+        if not value or len(value) < 2:
+            return False
 
-    return summary
+        # Names typically have letters and spaces, no special chars except apostrophes
+        if not re.match(r"^[a-zA-Z\s'áéíóúñÁÉÍÓÚÑ-]+$", value):
+            return False
+
+        # Names are usually 2-50 characters
+        return 2 <= len(value) <= 50
+
+    def _is_city_like(self, value: str) -> bool:
+        """Check if value looks like a city name"""
+        if not value or len(value) < 2:
+            return False
+
+        # Cities can have letters, spaces, hyphens
+        if not re.match(r"^[a-zA-Z\s\-'áéíóúñÁÉÍÓÚÑ]+$", value):
+            return False
+
+        # Cities are usually 2-100 characters
+        return 2 <= len(value) <= 100
+
+    def _is_country_like(self, value: str) -> bool:
+        """Check if value looks like a country name"""
+        if not value or len(value) < 2:
+            return False
+
+        # Countries can have letters, spaces
+        if not re.match(r"^[a-zA-Z\s\-'áéíóúñÁÉÍÓÚÑ]+$", value):
+            return False
+
+        # Countries are usually 2-50 characters
+        return 2 <= len(value) <= 50
+
+    def _is_gender_like(self, value: str) -> bool:
+        """Check if value looks like a gender"""
+        value_lower = value.lower().strip()
+        gender_values = [
+            'm', 'f', 'male', 'female', 'masculino', 'femenino',
+            'hombre', 'mujer', 'man', 'woman', 'boy', 'girl', 'niño', 'niña'
+        ]
+        return value_lower in gender_values
+
+    def _is_email_like(self, value: str) -> bool:
+        """Check if value looks like an email"""
+        if not value or len(value) < 5:
+            return False
+        value = str(value).strip()
+        # Check for @ and domain structure
+        if '@' not in value:
+            return False
+        local, domain = value.split('@', 1)
+        return len(local) > 0 and '.' in domain and len(domain) > 3
+
+    def _is_phone_like(self, value: str) -> bool:
+        """Check if value looks like a phone number"""
+        if not value:
+            return False
+        value = str(value).strip()
+        # Count digits
+        digits = [c for c in value if c.isdigit()]
+        return len(digits) >= 7 and len(digits) <= 15
+
+    def _is_url_like(self, value: str) -> bool:
+        """Check if value looks like a URL"""
+        if not value or len(value) < 4:
+            return False
+        value = str(value).lower().strip()
+        return value.startswith(('http://', 'https://', 'www.', 'ftp://'))
+
+    def _is_postal_code_like(self, value: str) -> bool:
+        """Check if value looks like a postal code"""
+        if not value:
+            return False
+        value = str(value).strip()
+        # Common postal code patterns (5 digits, 5+4, alphanumeric, etc.)
+        patterns = [
+            r'^\d{5}$',  # US 5-digit
+            r'^\d{5}-\d{4}$',  # US ZIP+4
+            r'^[A-Z]\d[A-Z]\s?\d[A-Z]\d$',  # Canadian
+            r'^\d{4,6}$',  # European 4-6 digits
+            r'^[A-Z]{1,2}\d{1,2}[A-Z]?\s?\d[A-Z]{2}$',  # UK
+        ]
+        return any(re.match(pattern, value.upper()) for pattern in patterns)
+
+    def _is_id_number_like(self, value: str) -> bool:
+        """Check if value looks like an ID number"""
+        if not value:
+            return False
+        value = str(value).strip()
+        # ID numbers are typically alphanumeric with specific patterns
+        if len(value) < 4 or len(value) > 20:
+            return False
+        # Should contain mix of letters and numbers
+        has_digit = any(c.isdigit() for c in value)
+        has_letter = any(c.isalpha() for c in value)
+        return has_digit and has_letter
+
+    def _is_percentage_like(self, value: str) -> bool:
+        """Check if value looks like a percentage"""
+        if not value:
+            return False
+        value = str(value).strip()
+        # Check for % symbol or decimal between 0-100
+        if '%' in value:
+            return True
+        try:
+            num = float(value)
+            return 0 <= num <= 100
+        except:
+            return False
+
+    def _is_weight_like(self, value: str) -> bool:
+        """Check if value looks like a weight"""
+        if not value:
+            return False
+        value = str(value).lower().strip()
+        # Check for weight units
+        weight_units = ['kg', 'kilogramos', 'libras', 'lb', 'toneladas', 'ton', 'gramos', 'g']
+        has_unit = any(unit in value for unit in weight_units)
+        if has_unit:
+            return True
+        # Check for reasonable weight numbers
+        try:
+            num = float(re.sub(r'[^\d.]', '', value))
+            return 0.1 <= num <= 10000  # Reasonable weight range
+        except:
+            return False
+
+    def _is_height_like(self, value: str) -> bool:
+        """Check if value looks like a height"""
+        if not value:
+            return False
+        value = str(value).lower().strip()
+        # Check for height units
+        height_units = ['cm', 'metros', 'm', 'pulgadas', 'inch', 'pies', 'ft']
+        has_unit = any(unit in value for unit in height_units)
+        if has_unit:
+            return True
+        # Check for reasonable height numbers
+        try:
+            num = float(re.sub(r'[^\d.]', '', value))
+            return 20 <= num <= 300  # Reasonable height range in cm
+        except:
+            return False
+
+    def _is_numeric_like(self, value: str) -> bool:
+        """Check if value looks like a generic number"""
+        try:
+            float(value.replace(',', '').replace(' ', ''))
+            return True
+        except:
+            return False
+
+    def get_optimization_summary(self) -> str:
+        """Get summary of optimizations applied"""
+        summary = f"CSV Optimization Summary:\n"
+        summary += f"- Original rows: {self.original_rows}\n"
+        summary += f"- Final rows: {self.final_rows}\n"
+        summary += f"- Rows removed: {self.original_rows - self.final_rows}\n"
+        summary += f"- Corrections applied:\n"
+
+        for correction in self.corrections_applied:
+            summary += f"  + {correction}\n"
+
+        return summary
                
