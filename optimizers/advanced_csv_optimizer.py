@@ -220,10 +220,6 @@ class AdvancedCSVOptimizer:
             if not detected_type:
                 detected_type = self._statistical_detection(sample_data)
             
-            # 4. Clustering-based detection
-            if not detected_type:
-                detected_type = self._clustering_detection(sample_data, col_name)
-            
             column_types[col] = detected_type or 'text'
             print(f"[CSV AI] Columna '{col}' detectada como: {column_types[col]}")
         
@@ -288,30 +284,6 @@ class AdvancedCSVOptimizer:
             
         except Exception as e:
             print(f"[CSV AI] Statistical detection error: {e}")
-        
-        return None
-
-    def _clustering_detection(self, sample_data, col_name):
-        """Use clustering to detect similar data patterns"""
-        try:
-            if len(sample_data) < 5:
-                return None
-            
-            # Vectorize text data
-            vectors = self.text_vectorizer.fit_transform(sample_data.astype(str))
-            
-            # Perform clustering
-            clusters = self.clustering_model.fit_predict(vectors.toarray())
-            
-            # Analyze cluster patterns
-            unique_clusters = len(set(clusters))
-            
-            # If most data falls into few clusters, it might be categorical
-            if unique_clusters <= 3 and len(sample_data) > 10:
-                return 'boolean' if unique_clusters <= 2 else 'category'
-            
-        except Exception as e:
-            print(f"[CSV AI] Clustering detection error: {e}")
         
         return None
 
