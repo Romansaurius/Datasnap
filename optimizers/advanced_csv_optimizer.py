@@ -3,6 +3,7 @@
 """
 Optimizador CSV Avanzado para DataSnap IA - Versión Mejorada
 Maneja archivos CSV con todos los errores posibles usando las mismas funciones inteligentes del XLSX
+nuevo
 """
 
 import pandas as pd
