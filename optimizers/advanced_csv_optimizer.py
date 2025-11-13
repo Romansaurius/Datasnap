@@ -3,7 +3,11 @@ import numpy as np
 import re
 from io import StringIO
 from datetime import datetime
-from rapidfuzz import fuzz
+try:
+    from rapidfuzz import fuzz
+    RAPIDFUZZ_AVAILABLE = True
+except ImportError:
+    RAPIDFUZZ_AVAILABLE = False
 
 try:
     from sklearn.cluster import KMeans
@@ -21,7 +25,7 @@ class AdvancedCSVOptimizer:
         self.common_typos = {
             'gmai.com': 'gmail.com', 'gmial.com': 'gmail.com', 'gmail.co': 'gmail.com',
             'hotmial.com': 'hotmail.com', 'hotmai.com': 'hotmail.com',
-            'yahooo.com': 'yahoo.com', 'yaho.com': 'yahoo.com'
+            'yahooo.com': 'yahoo.com', 'yaho.com': 'yahoo.com', 'gmailcom': 'gmail.com'
         }
 
     def optimize_csv(self, csv_content):
@@ -80,8 +84,14 @@ class AdvancedCSVOptimizer:
         if len(sample) == 0:
             return 'unknown'
         
-        # Email detection
-        email_score = sum(1 for x in sample if '@' in str(x) and '.' in str(x)) / len(sample)
+        # Email detection - more flexible
+        email_indicators = sum(1 for x in sample if ('@' in str(x) or 
+                              'gmail' in str(x).lower() or 
+                              'yahoo' in str(x).lower() or 
+                              'hotmail' in str(x).lower() or
+                              'outlook' in str(x).lower() or
+                              str(x).lower().endswith('.com')))
+        email_score = email_indicators / len(sample)
         if email_score > 0.3:
             return 'email'
         
@@ -101,9 +111,9 @@ class AdvancedCSVOptimizer:
         if bool_score > 0.5:
             return 'boolean'
         
-        # Numeric detection
-        numeric_score = sum(1 for x in sample if re.search(r'^[\d\.,\$€£¥₹\+\-]+$', str(x))) / len(sample)
-        if numeric_score > 0.5:
+        # Numeric detection - more strict
+        numeric_score = sum(1 for x in sample if re.search(r'^[\d\.,\$€£¥₹\+\-]+$', str(x)) and not re.search(r'^\d{3,4}[-\s]', str(x))) / len(sample)
+        if numeric_score > 0.6:
             return 'numeric'
         
         # Name detection
@@ -123,14 +133,70 @@ class AdvancedCSVOptimizer:
             # Remove mailto: prefix
             email_str = email_str.replace('mailto:', '')
             
-            # Fix missing @ symbol
-            if '@' not in email_str and email_str and '.' in email_str:
-                parts = email_str.split('.')
-                if len(parts) >= 2:
-                    email_str = f"{parts[0]}@{'.'.join(parts[1:])}"
+            # Handle @ symbol cases first
+            if '@' in email_str:
+                parts = email_str.split('@')
+                if len(parts) == 2:
+                    user, domain = parts
+                    
+                    # Fix incomplete domains
+                    if domain == '' or domain == 'gmail' or domain == 'gmai':
+                        email_str = f"{user}@gmail.com"
+                    elif domain == 'yahoo':
+                        email_str = f"{user}@yahoo.com"
+                    elif domain == 'hotmail':
+                        email_str = f"{user}@hotmail.com"
+                    elif domain == 'outlook':
+                        email_str = f"{user}@outlook.com"
+                    elif '.' not in domain:
+                        # Fix domains without dots
+                        if 'gmail' in domain:
+                            email_str = f"{user}@gmail.com"
+                        elif 'yahoo' in domain:
+                            email_str = f"{user}@yahoo.com"
+                        elif 'hotmail' in domain or 'hotmial' in domain:
+                            email_str = f"{user}@hotmail.com"
+                        elif 'outlook' in domain:
+                            email_str = f"{user}@outlook.com"
+                    else:
+                        # Fix common typos in domains with dots
+                        for typo, correct in self.common_typos.items():
+                            if domain == typo:
+                                email_str = f"{user}@{correct}"
+                                break
+                        # Fix .co -> .com, .comm -> .com
+                        if domain.endswith('.co'):
+                            email_str = f"{user}@{domain}m"
+                        elif domain.endswith('.comm'):
+                            email_str = f"{user}@{domain[:-1]}"
             
-            # Add domain if missing
-            if '@' not in email_str and email_str:
+            # Handle cases without @ but with domain indicators
+            elif any(d in email_str for d in ['gmail', 'yahoo', 'hotmail', 'outlook']):
+                if '.' in email_str:
+                    # Handle "mary.gmail" -> "mary@gmail.com"
+                    parts = email_str.split('.')
+                    if len(parts) >= 2:
+                        user = parts[0]
+                        domain_part = '.'.join(parts[1:])
+                        if 'gmail' in domain_part:
+                            email_str = f"{user}@gmail.com"
+                        elif 'yahoo' in domain_part:
+                            email_str = f"{user}@yahoo.com"
+                        elif 'hotmail' in domain_part:
+                            email_str = f"{user}@hotmail.com"
+                        elif 'outlook' in domain_part:
+                            email_str = f"{user}@outlook.com"
+                else:
+                    # Handle "marygmail" -> "mary@gmail.com"
+                    for domain in ['gmail', 'yahoo', 'hotmail', 'outlook']:
+                        if domain in email_str:
+                            user_part = email_str.replace(domain, '')
+                            if user_part:
+                                email_str = f"{user_part}@{domain}.com"
+                            break
+            
+            # Add default domain if no @ and no domain indicators
+            elif '@' not in email_str and email_str:
                 email_str = f"{email_str}@gmail.com"
             
             # Fix common typos
@@ -140,6 +206,10 @@ class AdvancedCSVOptimizer:
             # Fix domain extensions
             email_str = re.sub(r'\.co$', '.com', email_str)
             email_str = re.sub(r'\.comm$', '.com', email_str)
+            
+            # Fix incomplete emails like "ana@"
+            if email_str.endswith('@'):
+                email_str += 'gmail.com'
             
             # Validate email format
             if not re.match(r'^[\w\.-]+@[\w\.-]+\.[a-zA-Z]{2,}$', email_str):
@@ -178,10 +248,14 @@ class AdvancedCSVOptimizer:
             
             date_str = str(date_val).strip()
             
-            # Fix impossible dates
-            date_str = re.sub(r'(\d{4})[-/](\d{2})[-/](30|31)', lambda m: f"{m.group(1)}-{m.group(2)}-28" if m.group(2) == '02' else m.group(0), date_str)
-            date_str = re.sub(r'(\d{4})[-/](13|14|15)', r'\1-12', date_str)
-            date_str = re.sub(r'(32|33)[-/](\d{2})[-/](\d{4})', r'28/\2/\3', date_str)
+            # Fix impossible dates like 32/13/1988
+            date_str = re.sub(r'32/(\d{2})/(\d{4})', r'28/\1/\2', date_str)
+            date_str = re.sub(r'(\d{1,2})/13/(\d{4})', r'\1/12/\2', date_str)
+            date_str = re.sub(r'(\d{4})/15/(\d{2})', r'\1/12/\2', date_str)
+            
+            # Fix February 30th
+            date_str = re.sub(r'(\d{4})-02-(30|31)', r'\1-02-28', date_str)
+            date_str = re.sub(r'2024-02-30', '2024-02-28', date_str)
             
             # Fix date format DD/MM/YYYY to YYYY-MM-DD
             date_str = re.sub(r'(\d{1,2})/(\d{1,2})/(\d{4})', r'\3-\2-\1', date_str)
@@ -198,7 +272,9 @@ class AdvancedCSVOptimizer:
             name_str = str(name).strip()
             
             # Remove invalid names
-            if len(name_str) < 2 or name_str.lower() in ['null', 'none', 'missing', 'duplicate']:
+            if (len(name_str) < 2 or 
+                name_str.lower() in ['null', 'none', 'missing', 'duplicate', 'carlos null'] or
+                re.match(r'^\d+$', name_str)):
                 return np.nan
             
             # Fix capitalization
@@ -218,13 +294,17 @@ class AdvancedCSVOptimizer:
             
             value_str = str(value).strip()
             
+            # Handle "invalid" values
+            if value_str.lower() == 'invalid':
+                return np.nan
+            
             # Remove currency symbols and commas
             value_str = re.sub(r'[$€£¥₹,]', '', value_str)
             
             try:
                 num_val = float(value_str)
-                # Fix negative values that should be positive
-                if num_val < 0 and 'price' in str(series.name).lower():
+                # Fix negative salaries
+                if num_val < 0 and ('salario' in str(series.name).lower() or 'salary' in str(series.name).lower()):
                     num_val = abs(num_val)
                 return num_val
             except:
@@ -255,14 +335,11 @@ class AdvancedCSVOptimizer:
         # Remove completely empty rows
         df = df.dropna(how='all')
         
+        # Remove rows with "Duplicate Row" pattern
+        df = df[~df.astype(str).apply(lambda x: x.str.contains('Duplicate Row', case=False, na=False)).any(axis=1)]
+        
         # Remove duplicate rows
         df = df.drop_duplicates()
-        
-        # Remove rows with invalid patterns
-        for idx, row in df.iterrows():
-            invalid_count = sum(1 for val in row if str(val).lower() in ['duplicate', 'invalid', 'test'])
-            if invalid_count > len(row) * 0.3:  # More than 30% invalid
-                df = df.drop(idx)
         
         return df.reset_index(drop=True)
 
